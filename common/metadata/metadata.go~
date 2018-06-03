@@ -1,0 +1,24 @@
+
+package metadata
+
+import (
+	"fmt"
+	"runtime"
+)
+
+//本程序版本号
+var Version string
+//运行的fabric的版本号
+var FabricVersion string = "1.0"
+
+const ProgramName = "meconfig"
+
+func GetVersionInfo() string {
+	if Version == "" {
+		Version = "development build"
+	}
+
+	return fmt.Sprintf("%s:\n Version: %s\n Go version: %s\n OS/Arch: %s",
+		ProgramName, Version, runtime.Version(),
+		fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH))
+}

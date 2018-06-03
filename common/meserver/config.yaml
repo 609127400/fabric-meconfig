@@ -1,0 +1,14 @@
+# 用于meserver执行具体命令时，涉及到的具体的所在环境的值
+# 比如 运行的orderer容器名不一定是官方默认的
+# 再比如，自定义的配置文件路径，等等
+#
+
+orderer:
+    # 本机部署时设置
+    # orderer程序的路径
+    orderer_path: /
+
+
+    # 如果是容器部署，则填写orderer镜像和容器的名字
+    image_name: hyperledger/fabric-orderer
+    container_name: orderer.example.com

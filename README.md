@@ -1,8 +1,7 @@
 
 ## 概述
 
-分为客户端程序meclient和服务器端程序meserver。meserver运行在fabric节点物理机中，meclient运行在任何一个可以与节点通信的物理机中。meclient提供配置数据和配置命令，meserver在fabric部署节点中通过操作容器执行相应配置数据和命令（物理机部署操作功能暂未实现）。
-
+针对区块链项目hyperledger-fabric项目节点配置比较麻烦而编写的项目：ME -> More Easy。分为客户端程序meclient和服务器端程序meserver。meserver运行在fabric节点物理机中，meclient运行在任何一个可以与节点通信的物理机中。meclient提供配置数据和配置命令，meserver在fabric部署节点中通过操作容器执行相应配置数据和命令。
 
 
 ## 配置内容：
@@ -70,7 +69,9 @@ kafka配置
 服务端若是docker容器部署的节点，则容器需要满足以下前提，程序才能成功执行：
 
 * orderer容器中包含orderer关键词，且非orderer容器不包含orderer关键词，peer节点容器名中需要包含peer关键字。
-* 服务端需以管理员权限运行
+* 服务端需以管理员权限运行。
+* 区块链节点以物理机的方式部署的操作暂未实现。
+* 目前支持hyperleder-fabric v1.0版本。
 
 
 

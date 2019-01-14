@@ -1,77 +1,50 @@
 
-## ¸ÅÊö
+## æ¦‚è¿°
 
-Õë¶ÔÇø¿éÁ´ÏîÄ¿hyperledger-fabricÏîÄ¿½ÚµãÅäÖÃ±È½ÏÂé·³¶ø±àÐ´µÄÏîÄ¿£ºME -> More Easy¡£·ÖÎª¿Í»§¶Ë³ÌÐòmeclientºÍ·þÎñÆ÷¶Ë³ÌÐòmeserver¡£meserverÔËÐÐÔÚfabric½ÚµãÎïÀí»úÖÐ£¬meclientÔËÐÐÔÚÈÎºÎÒ»¸ö¿ÉÒÔÓë½ÚµãÍ¨ÐÅµÄÎïÀí»úÖÐ¡£meclientÌá¹©ÅäÖÃÊý¾ÝºÍÅäÖÃÃüÁî£¬meserverÔÚfabric²¿Êð½ÚµãÖÐÍ¨¹ý²Ù×÷ÈÝÆ÷Ö´ÐÐÏàÓ¦ÅäÖÃÊý¾ÝºÍÃüÁî¡£
-
-
-## ÅäÖÃÄÚÈÝ£º
-
-orderer×ÔÉíÅäÖÃ
-
-peer×ÔÉíÅäÖÃ
-
-Í¨µÀÅäÖÃ
-
-²ßÂÔÅäÖÃ
-
-kafkaÅäÖÃ
-
-## ±àÒë
-
-#### ¿Í»§¶Ë
-
-##### »·¾³
-
-ÒòÎª¿Í»§¶ËÊÇÊ¹ÓÃ`github.com/therecipe/qt`±àÐ´£¬Òò´ËÐèÒªÊ¹ÓÃ¸Ã¿âÌá¹©µÄ±àÒë³ÌÐò½øÐÐ±àÒë¡£Çëä¯ÀÀ¸Ã¿â²¢¸ù¾Ý×ÔÉí±àÒëÏµÍ³Ñ¡Ôñ°²×°qtdeployµÈ³ÌÐò¡£°²×°Ö®ºó£¬¼´¿ÉÖ´ÐÐ±àÒë¹¤×÷¡£
-
-±àÒëÃüÁî£ºÔÚfabric-meconfigÄ¿Â¼ÏÂ£¬Ö´ÐÐ`qtdeploy -docker --tags nopkcs11`¡£ --tags nopkcs11ÊÇÒòÎªµ÷ÓÃµÄÓÐfabricÖÐµÄÔ´Âë£¬»áÉæ¼°µ½Ò»¸ögithub.com\miekg\pkcs11\pkcs11.go³öÏÖµÄfatal error:ltdl.h: No such file or directory´íÎó£¬ÒòÎªÔÚ±àÒëµÄÊ±ºòÐèÒªlibltdl-devÕâ¸ö¿â£¬µ«ÊÇqtdeployµÄ±àÒëÈÝÆ÷ÀïÃæÄ¬ÈÏÃ»ÓÃ°²×°Õâ¸ö¿â¡£
-
-#### ·þÎñ¶Ë
-
-·þÎñ¶ËÊÇ±ê×¼µÄgo³ÌÐò£¬Òò´ËÖ±½ÓÔÚfabric-meconfig/common/meserverÄ¿Â¼ÏÂ£¬Ö´ÐÐ`go build --tags nopkcs11`¼´¿É¡£`--tags nopkcs11`Ò²ÊÇÒòÎªfatal error:ltdl.h: No such file or directory´íÎó£¬µ«ÊÇÈô±àÒëµÄÏµÍ³ÖÐ°²×°ÁËlibltdl-dev£¬²»¼Ó´ËtagsÒà¿É¡£
+é’ˆå¯¹åŒºå—é“¾é¡¹ç›®hyperledger-fabricé¡¹ç›®èŠ‚ç‚¹é…ç½®æ¯”è¾ƒéº»çƒ¦è€Œç¼–å†™çš„é¡¹ç›®ï¼šME -> More Easyã€‚åˆ†ä¸ºå®¢æˆ·ç«¯ç¨‹åºmeclientå’ŒæœåŠ¡å™¨ç«¯ç¨‹åºmeserverã€‚meserverè¿è¡Œåœ¨fabricèŠ‚ç‚¹ç‰©ç†æœºä¸­ï¼Œmeclientè¿è¡Œåœ¨ä»»ä½•ä¸€ä¸ªå¯ä»¥ä¸ŽèŠ‚ç‚¹é€šä¿¡çš„ç‰©ç†æœºä¸­ã€‚meclientæä¾›é…ç½®æ•°æ®å’Œé…ç½®å‘½ä»¤ï¼Œmeserveråœ¨fabricéƒ¨ç½²èŠ‚ç‚¹ä¸­é€šè¿‡æ“ä½œå®¹å™¨æ‰§è¡Œç›¸åº”é…ç½®æ•°æ®å’Œå‘½ä»¤ã€‚
 
 
-## Ö´ÐÐ
+## é…ç½®å†…å®¹ï¼š
 
-1.	´ò¿ªmeclientÎÄ¼þ¼Ð£¬Ö´ÐÐfabric-meconfig.sh½Å±¾£¬ÔËÐÐmeclient£¬¼´¿Í»§¶Ë½çÃæ³ÌÐò¡£¿Í»§¶Ë³ÌÐòµÄÈÕÖ¾»á¼ÇÂ¼ÔÚÍ¬ÎÄ¼þ¼ÐµÄgui.logÄ¿Â¼ÖÐ
-2.	£¨ÔÚ²¿ÊðµÄÇø¿éÁ´½ÚµãÉÏ£©´ò¿ªmeserverÎÄ¼þ¼Ð£¬sudo ./meserver£¬¼´¹ÜÀíÔ±È¨ÏÞÖ´ÐÐmeserver·þÎñ¶Ë³ÌÐò¡£meserverµÄÈÕÖ¾»á¼ÇÂ¼ÔÚÍ¬ÎÄ¼þ¼ÐµÄserver.logÖÐ
+ordererè‡ªèº«é…ç½®
 
+peerè‡ªèº«é…ç½®
 
-## ÓÃÀý
+é€šé“é…ç½®
 
-±ÈÈçÔö¼ÓÒ»¸öÐÂ×éÖ¯£¬²Ù×÷ÈçÏÂ£º
+ç­–ç•¥é…ç½®
 
-![aaaa.png](./images/aaaa.png "")
+kafkaé…ç½®
 
-1.	A´¦£ºÑ¡ÔñmeserverËùÔÚµÄÎïÀí»úµØÖ·£¨ÕâÀïÄ¬ÈÏÖµÊÇ127.0.0.1£¬¼´meserverÓëmeclientÔÚÍ¬Ò»Ì¨ÎïÀí»úÉÏ£©
-2.	B´¦£ºÑ¡Ôñ×îÖÕ½øÐÐÖ´ÐÐpeer channel update½øÐÐÌí¼ÓÐÂ×éÖ¯µÄ½ÚµãÈÝÆ÷
-3.	C´¦£ºOrderer½ÚµãµØÖ·
-4.	D´¦£ºB´¦Ñ¡Ôñ½ÚµãËù³ÖÓÐ£¨¸Ã½Úµã±ØÐë³ÖÓÐ£©µÄÁ¬½ÓOrderer½ÚµãµÄTLS CAÖ¤ÊéÂ·¾¶¡£
-5.	E´¦£º¿ÉÒÔ»ñÈ¡meserverËùÔÚµÄ½ÚµãÉÏÔËÐÐµÄpeer½ÚµãÈÝÆ÷µÄ»ù±¾ÐÅÏ¢£¨ÈôÊÇÎïÀí»ú²¿Êð£¬ÔòÔÝÎ´ÊµÏÖ£©
+## ç¼–è¯‘
 
-![BBBBBBB.png](./images/BBBBBBB.png "")
+#### å®¢æˆ·ç«¯
 
-1.	A´¦£ºµã»÷½øÈ¥×éÖ¯Ìí¼Ó×éÖ¯Ãæ°å
-2.	B´¦£ºÊäÈëÇ©Ãû½ÚµãµÄmeserverµÄ¼àÌýµØÖ·£¨127.0.0.1:10000ÒÀÈ»ËµÃ÷meclientºÍmeserverÔËÐÐÔÚÍ¬Ò»Ì¨ÎïÀí»úÉÏ£©
-3.	C´¦£ºÇ©Ãû½ÚµãÖ´ÐÐÇ©ÃûµÄÈÝÆ÷ID£¨¸ÃÈÝÆ÷±ØÐë³ÖÓÐ¹ÜÀíÔ±½ÇÉ«MSP£¬ÒòÎªÌí¼Ó×éÖ¯µÄÍ¨µÀµÄÐÞ¸Ä²ßÂÔÄ¬ÈÏÊÇMAJORITY£©
-4.	D´¦£ºÇ©Ãû½ÚµãµÄÅäÖÃÂ·¾¶£¬ÈôÎ´×Ô¶¨Òå£¬ÔòÎª¿Õ¼´¿É£¬³ÌÐò×Ô¶¯»ñÈ¡Ç©Ãû½ÚµãFABRIC_CFG_PATHµÄ»·¾³±äÁ¿Öµ×÷ÎªÅäÖÃÂ·¾¶£¬¸ÃÂ·¾¶ÏÂ±ØÐë°üº¬Ç©Ãû½ÚµãµÄmsp£¬tlsºÍcore.yaml£¨Ä¬ÈÏÒà¶¼ÔÚFABRIC_CFG_PATH´ËÄ¿Â¼ÏÂ£©¡£
-5.	E´¦£ºµã»÷¿ÉÒÔÔö¼ÓÒ»¸öÇ©Ãû½ÚµãµÄÐÅÏ¢¡£Í¬Ñù£¬Í¨µÀÐÞ¸Ä²ßÂÔÄ¬ÈÏÊÇMAJORITY£¬µ±ÐèÒª¸ü¶àµÄ¹ÜÀíÔ±½ÚµãÇ©ÃûÊ±£¬µã»÷´Ë´¦Ôö¼Ó¡£
-6.	ÌîÐ´ÒªÌí¼ÓµÄ×éÖ¯µÄÐÅÏ¢¡£
-7.	F´¦£ºÌîÐ´Íê±Ïºó£¬µã»÷Ó¦ÓÃ¡£
-8.	G´¦£ºÈôÌí¼Ó³É¹¦£¬ÔòÏÔÊ¾ÈçÍ¼ÐÅÏ¢¡£
+##### çŽ¯å¢ƒ
+
+å› ä¸ºå®¢æˆ·ç«¯æ˜¯ä½¿ç”¨`github.com/therecipe/qt`ç¼–å†™ï¼Œå› æ­¤éœ€è¦ä½¿ç”¨è¯¥åº“æä¾›çš„ç¼–è¯‘ç¨‹åºè¿›è¡Œç¼–è¯‘ã€‚è¯·æµè§ˆè¯¥åº“å¹¶æ ¹æ®è‡ªèº«ç¼–è¯‘ç³»ç»Ÿé€‰æ‹©å®‰è£…qtdeployç­‰ç¨‹åºã€‚å®‰è£…ä¹‹åŽï¼Œå³å¯æ‰§è¡Œç¼–è¯‘å·¥ä½œã€‚
+
+ç¼–è¯‘å‘½ä»¤ï¼šåœ¨fabric-meconfigç›®å½•ä¸‹ï¼Œæ‰§è¡Œ`qtdeploy -docker --tags nopkcs11`ã€‚ --tags nopkcs11æ˜¯å› ä¸ºè°ƒç”¨çš„æœ‰fabricä¸­çš„æºç ï¼Œä¼šæ¶‰åŠåˆ°ä¸€ä¸ªgithub.com\miekg\pkcs11\pkcs11.goå‡ºçŽ°çš„fatal error:ltdl.h: No such file or directoryé”™è¯¯ï¼Œå› ä¸ºåœ¨ç¼–è¯‘çš„æ—¶å€™éœ€è¦libltdl-devè¿™ä¸ªåº“ï¼Œä½†æ˜¯qtdeployçš„ç¼–è¯‘å®¹å™¨é‡Œé¢é»˜è®¤æ²¡ç”¨å®‰è£…è¿™ä¸ªåº“ã€‚
+
+#### æœåŠ¡ç«¯
+
+æœåŠ¡ç«¯æ˜¯æ ‡å‡†çš„goç¨‹åºï¼Œå› æ­¤ç›´æŽ¥åœ¨fabric-meconfig/common/meserverç›®å½•ä¸‹ï¼Œæ‰§è¡Œ`go build --tags nopkcs11`å³å¯ã€‚`--tags nopkcs11`ä¹Ÿæ˜¯å› ä¸ºfatal error:ltdl.h: No such file or directoryé”™è¯¯ï¼Œä½†æ˜¯è‹¥ç¼–è¯‘çš„ç³»ç»Ÿä¸­å®‰è£…äº†libltdl-devï¼Œä¸åŠ æ­¤tagsäº¦å¯ã€‚
 
 
+## æ‰§è¡Œ
+
+1.	æ‰“å¼€meclientæ–‡ä»¶å¤¹ï¼Œæ‰§è¡Œfabric-meconfig.shè„šæœ¬ï¼Œè¿è¡Œmeclientï¼Œå³å®¢æˆ·ç«¯ç•Œé¢ç¨‹åºã€‚å®¢æˆ·ç«¯ç¨‹åºçš„æ—¥å¿—ä¼šè®°å½•åœ¨åŒæ–‡ä»¶å¤¹çš„gui.logç›®å½•ä¸­
+2.	ï¼ˆåœ¨éƒ¨ç½²çš„åŒºå—é“¾èŠ‚ç‚¹ä¸Šï¼‰æ‰“å¼€meserveræ–‡ä»¶å¤¹ï¼Œsudo ./meserverï¼Œå³ç®¡ç†å‘˜æƒé™æ‰§è¡ŒmeserveræœåŠ¡ç«¯ç¨‹åºã€‚meserverçš„æ—¥å¿—ä¼šè®°å½•åœ¨åŒæ–‡ä»¶å¤¹çš„server.logä¸­
 
 
+## é™åˆ¶ï¼š
 
-## ÏÞÖÆ£º
+æœåŠ¡ç«¯è‹¥æ˜¯dockerå®¹å™¨éƒ¨ç½²çš„èŠ‚ç‚¹ï¼Œåˆ™å®¹å™¨éœ€è¦æ»¡è¶³ä»¥ä¸‹å‰æï¼Œç¨‹åºæ‰èƒ½æˆåŠŸæ‰§è¡Œï¼š
 
-·þÎñ¶ËÈôÊÇdockerÈÝÆ÷²¿ÊðµÄ½Úµã£¬ÔòÈÝÆ÷ÐèÒªÂú×ãÒÔÏÂÇ°Ìá£¬³ÌÐò²ÅÄÜ³É¹¦Ö´ÐÐ£º
-
-* ordererÈÝÆ÷ÖÐ°üº¬orderer¹Ø¼ü´Ê£¬ÇÒ·ÇordererÈÝÆ÷²»°üº¬orderer¹Ø¼ü´Ê£¬peer½ÚµãÈÝÆ÷ÃûÖÐÐèÒª°üº¬peer¹Ø¼ü×Ö¡£
-* ·þÎñ¶ËÐèÒÔ¹ÜÀíÔ±È¨ÏÞÔËÐÐ¡£
-* Çø¿éÁ´½ÚµãÒÔÎïÀí»úµÄ·½Ê½²¿ÊðµÄ²Ù×÷ÔÝÎ´ÊµÏÖ¡£
-* Ä¿Ç°Ö§³Öhyperleder-fabric v1.0°æ±¾¡£
+* ordererå®¹å™¨ä¸­åŒ…å«ordererå…³é”®è¯ï¼Œä¸”éžordererå®¹å™¨ä¸åŒ…å«ordererå…³é”®è¯ï¼ŒpeerèŠ‚ç‚¹å®¹å™¨åä¸­éœ€è¦åŒ…å«peerå…³é”®å­—ã€‚
+* æœåŠ¡ç«¯éœ€ä»¥ç®¡ç†å‘˜æƒé™è¿è¡Œã€‚
+* åŒºå—é“¾èŠ‚ç‚¹ä»¥ç‰©ç†æœºçš„æ–¹å¼éƒ¨ç½²çš„æ“ä½œæš‚æœªå®žçŽ°ã€‚
+* ç›®å‰æ”¯æŒhyperleder-fabric v1.0ç‰ˆæœ¬ã€‚
 
 
 

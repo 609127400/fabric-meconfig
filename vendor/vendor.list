@@ -1,6 +1,0 @@
-"github.com/spf13/viper"
-"github.com/golang/protobuf/proto"
-"github.com/hyperledger/fabric"
-"github.com/tidwall/gjson"
-"github.com/therecipe/qt"
-"google.golang.org/grpc"

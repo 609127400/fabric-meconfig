@@ -1,50 +1,44 @@
 
-## 概述
+## MEConfig Tool
 
-针对区块链项目hyperledger-fabric项目节点配置比较麻烦而编写的项目：ME -> More Easy。分为客户端程序meclient和服务器端程序meserver。meserver运行在fabric节点物理机中，meclient运行在任何一个可以与节点通信的物理机中。meclient提供配置数据和配置命令，meserver在fabric部署节点中通过操作容器执行相应配置数据和命令。
+#### 概述
 
+针对区块链项目Hyperledger Fabric项目升级节点配置过于繁琐而编写本工具：ME -> More Easy。
 
-## 配置内容：
+* MEConfig Tool的配置文件为执行目录下的meconfig.json，不可修改配置文件名
+* MEConfig Tool依据Hyperledger Fabric更新通道配置的步骤进行编写，主要有：
+	1. fetch - 获取通道最新配置块
+	2. delta - 修改配置数据，并计算配置增量，将增量配置数据装入Envelope
+	3. sign - 根据修改策略对Envelope进行的签名
+	4. commit - 向orderer提交配置交易
+* 因为fetch/delta/commit这步在整个fabric配置升级的过程中只需执行一次即可，因此MEConfig Tool主要以下功能模式或组合：
+	1. fetch。单独获取配置。
+	2. delta。根据计算配置增量。
+	3. fetch/delta。获取配置并计算增量。
+	1. fetch/delta/sign。获取配置，计算增量配置，并签名。
+	2. sign。单独对增量配置进行签名。
+	3. sign/commit。签名并提交交易。
+	4. commit。单独进行提交。
 
-orderer自身配置
+#### config.json释义
 
-peer自身配置
-
-通道配置
-
-策略配置
-
-kafka配置
-
-## 编译
-
-#### 客户端
-
-##### 环境
-
-因为客户端是使用`github.com/therecipe/qt`编写，因此需要使用该库提供的编译程序进行编译。请浏览该库并根据自身编译系统选择安装qtdeploy等程序。安装之后，即可执行编译工作。
-
-编译命令：在fabric-meconfig目录下，执行`qtdeploy -docker --tags nopkcs11`。 --tags nopkcs11是因为调用的有fabric中的源码，会涉及到一个github.com\miekg\pkcs11\pkcs11.go出现的fatal error:ltdl.h: No such file or directory错误，因为在编译的时候需要libltdl-dev这个库，但是qtdeploy的编译容器里面默认没用安装这个库。
-
-#### 服务端
-
-服务端是标准的go程序，因此直接在fabric-meconfig/common/meserver目录下，执行`go build --tags nopkcs11`即可。`--tags nopkcs11`也是因为fatal error:ltdl.h: No such file or directory错误，但是若编译的系统中安装了libltdl-dev，不加此tags亦可。
-
-
-## 执行
-
-1.	打开meclient文件夹，执行fabric-meconfig.sh脚本，运行meclient，即客户端界面程序。客户端程序的日志会记录在同文件夹的gui.log目录中
-2.	（在部署的区块链节点上）打开meserver文件夹，sudo ./meserver，即管理员权限执行meserver服务端程序。meserver的日志会记录在同文件夹的server.log中
-
-
-## 限制：
-
-服务端若是docker容器部署的节点，则容器需要满足以下前提，程序才能成功执行：
-
-* orderer容器中包含orderer关键词，且非orderer容器不包含orderer关键词，peer节点容器名中需要包含peer关键字。
-* 服务端需以管理员权限运行。
-* 区块链节点以物理机的方式部署的操作暂未实现。
-* 目前支持hyperleder-fabric v1.0版本。
+* option
+	- fetch：是否开启【获取最新config block】的功能，开启为on，关闭为off（下同）
+	- delta：是否开启【计算增量配置数据】的功能
+	- sign：是否开启【签名配置交易】的功能
+	- commit：是否开启【提交配置交易】的功能
+	- save：是否开启【保存中间数据】的功能，中间数据有签名信封signed\_envolope.pb、原配置块config\_block.pb
+	- depend：commit依赖sign，save依赖fetch/sign，即如果sign=false，即便commit=true，也不会执行commit操作
+* basic_info
+	- localmsp_xxx：用于fetch或sign，需确保该msp所代表的身份在通道上拥有读权限即可
+	- signmsp_xxx：用于sign，若为空，则默认使用localmsp进行签名，若option.sign=off，则无需设置
+	- orderer_xxx：用于fetch和commit，若fetch/commit均为off，则无需设置
+	- signed_file：用于sign，当fetch=off且sign=on，则说明不是从通道获取配置，而是从该文件中获取配置并追加签名
+* config_info
+	- 该部分指定要更新的配置项，key为配置路径，value为配置值
+	- 配置项路径：将configblock转为json后，从data.data[0].payload.data中的config开始算起，一直到具体要修改的配置项的json路径
+	- 配置项值：使用配置项对象的标准的json格式，可参考protos下配置对象结构体中的json tag
+	- 如果不修改配置项，则此部分无需设置
 
 
 

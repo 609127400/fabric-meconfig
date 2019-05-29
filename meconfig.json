@@ -14,19 +14,27 @@
         "signmsp_id": "OrdererMSP",
         "signmsp_path": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/legalunion.com/users/Admin@legalunion.com/msp",
         "orderer_endpoint": "orderer0.legalunion.com:7050",
-        "orderer_tls_rootcert": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/legalunion.com/orderers/orderer0.legalunion.com/msp/tlscacerts/tlslegalunion.com-cert.pem",
+        "orderer_tls_rootcert": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/legalunion.com/orderers/orderer0.legalunion.com/msp/tlscacerts/tlslegalunion.com-cert.pem"
     },
 
     "fetch_config": {
-        "config_file": "./config_block.pb"
+        "from": "channel",
+        "fetch_file": "./config_block.pb"
     },
     "delta_config": {
-        "config.channel_group.groups.Orderer.values.BatchSize.value": {"absolute_max_bytes": 102760448,"max_message_count": 5,"preferred_max_bytes": 131072},
-        "config.channel_group.groups.Orderer.values.KafkaBrokers.value": {"brokers": ["kafka0.legalunion.com:9092","kafka1.legalunion.com:9092","kafka2.legalunion.com:9092","kafka3.legalunion.com:9092","kafka4.legalunion.com:9092","kafka5.legalunion.com:9092","kafka6.legalunion.com:9092","kafka7.legalunion.com:9092"]}
+        "delta_file": "./delta_envelope.pb",
+        "delta_kvs": {
+            "config.channel_group.groups.Orderer.values.BatchSize.value": {"absolute_max_bytes": 102760448,"max_message_count": 5,"preferred_max_bytes": 131072},
+            "config.channel_group.groups.Orderer.values.KafkaBrokers.value": {"brokers": ["kafka0.legalunion.com:9092","kafka1.legalunion.com:9092","kafka2.legalunion.com:9092","kafka3.legalunion.com:9092","kafka4.legalunion.com:9092","kafka5.legalunion.com:9092","kafka6.legalunion.com:9092","kafka7.legalunion.com:9092"]}
+        }
     },
     "sign_config": {
-        "signed_file": "./sigend_envelope.pb"
+        "from": "file",
+        "sign_file": "./sigend_envelope.pb"
     },
-    "commit_config": {},
+    "commit_config": {
+        "from": "sign",
+        "commit_file": "./commit_envelope.pb"
+    },
     "save_config": {}
 }

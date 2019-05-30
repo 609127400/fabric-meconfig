@@ -3,6 +3,7 @@ package main
 
 import(
 	"fmt"
+	//"flag"
 	"strings"
 	"os"
 	"io/ioutil"
@@ -16,6 +17,7 @@ import(
 	"encoding/pem"
 	"encoding/hex"
 	"hash"
+	//"strconv"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -66,21 +68,43 @@ const (
 	MECONFIG_FILE_PATH string = "./meconfig.json"
 )
 
-type METHOD int
+type MODE int
 const (
-	FETCH  METHOD = 0x01
-	DELTA  METHOD = 0x02
-	SIGN   METHOD = 0x04
-	COMMIT METHOD = 0x08
-	F    METHOD = FETCH
-	FD   METHOD = FETCH | DELTA
-	FDS  METHOD = FETCH | DELTA | SIGN
-	S    METHOD = SIGN
-	SC   METHOD = SIGN | COMMIT
-	C    METHOD = COMMIT
-	FDSC METHOD = FETCH | DELTA | SIGN | COMMIT
-	UNKNOWN_METHOD METHOD = 10000
+	UNKNOWN_MODE MODE = 0
+	FETCH  MODE = 0x01
+	DELTA  MODE = 0x02
+	SIGN   MODE = 0x04
+	COMMIT MODE = 0x08
+	F    MODE = FETCH
+	FD   MODE = FETCH | DELTA
+	FDS  MODE = FETCH | DELTA | SIGN
+	S    MODE = SIGN
+	SC   MODE = SIGN | COMMIT
+	C    MODE = COMMIT
+	FDSC MODE = FETCH | DELTA | SIGN | COMMIT
 )
+
+var MODE_name = map[MODE]string{
+	F:   "f",
+	FD: "fd",
+	FDS: "fds",
+	S: "s",
+	SC: "sc",
+	C: "c",
+	FDSC: "fdsc",
+	UNKNOWN_MODE: "unknown mode",
+}
+
+var MODE_value = map[string]MODE{
+	"f": F,
+	"fd": FD,
+	"fds": FDS,
+	"s": S,
+	"sc": SC,
+	"c": C,
+	"fdsc": FDSC,
+	"unknown mode": UNKNOWN_MODE,
+}
 
 //TODO:
 //1.怎么找到配置项，以最简单的形式提供修改配置项的值
@@ -89,17 +113,23 @@ const (
 func main() {
 	conf, err := getMEConfig()
 	if err != nil {
-		fmt.Printf("获取config.json配置失败, err: %s\n", err)
+		fmt.Errorf("获取meconfig.json配置失败, err: %s\n", err)
 		return
 	}
 
-	method := getMethod(conf)
-	if method == UNKNOWN_METHOD {
+	err = adjustMEConfigByCmdLine(conf)
+	if err != nil {
+		fmt.Printf("根据命令行调整meconfig.json配置失败，err:%s\n", err)
+		return
+	}
+
+	mode := getMode(conf)
+	if mode == UNKNOWN_MODE {
 		fmt.Println("未知的功能模式")
 		return
 	}
 
-	err = method.do(conf)
+	err = mode.do(conf)
 	if err != nil {
 		fmt.Printf("执行失败：%s\n", err)
 		return
@@ -431,22 +461,66 @@ func getMEConfig() (*MEConfig, error) {
 	return conf, nil
 }
 
-func getMethod(conf *MEConfig) METHOD {
-	if conf == nil { return UNKNOWN_METHOD }
+func getMode(conf *MEConfig) MODE {
+	if conf == nil { return UNKNOWN_MODE }
 
 	is_fetch  := conf.Option["fetch"]
 	is_delta  := conf.Option["delta"]
 	is_sign   := conf.Option["sign"]
 	is_commit := conf.Option["commit"]
-	if is_fetch  && !is_delta && !is_sign && !is_commit { return F   }
-	if is_fetch  && is_delta  && !is_sign && !is_commit { return FD  }
-	if is_fetch  && is_delta  && is_sign  && !is_commit { return FDS }
-	if !is_fetch && !is_delta && is_sign  && !is_commit { return S   }
-	if !is_fetch && !is_delta && is_sign  && is_commit  { return SC  }
-	if !is_fetch && !is_delta && !is_sign && is_commit  { return C   }
-	if is_fetch  && is_delta  && is_sign  && is_commit  { return FDSC   }
+	if is_fetch  && !is_delta && !is_sign && !is_commit { return F    }
+	if is_fetch  && is_delta  && !is_sign && !is_commit { return FD   }
+	if is_fetch  && is_delta  && is_sign  && !is_commit { return FDS  }
+	if !is_fetch && !is_delta && is_sign  && !is_commit { return S    }
+	if !is_fetch && !is_delta && is_sign  && is_commit  { return SC   }
+	if !is_fetch && !is_delta && !is_sign && is_commit  { return C    }
+	if is_fetch  && is_delta  && is_sign  && is_commit  { return FDSC }
 
-	return UNKNOWN_METHOD
+	return UNKNOWN_MODE
+}
+
+func adjustMEConfigByCmdLine(conf *MEConfig) error {
+	if conf == nil { return fmt.Errorf("conf is nil") }
+
+	notset := "netset"
+	save := notset
+	mode := notset
+	args := os.Args[1:]
+	argslen := len(args)
+	errHander := func(msg string) error {
+		return fmt.Errorf("err: %s.\nusage example:[meconfig --mode fds -s].", msg)
+	}
+
+	for i := 0; i < argslen; i++ {
+		v := args[i]
+		if v == "-m" || v == "--mode" {
+			if i < argslen - 1 {
+				mode = args[i+1]
+				i++//跳过flag的值
+			}else {
+				return errHander("please set mode value")
+			}
+		}else if v == "-s" || v == "--save" {
+			save = ""
+		}else {
+			return errHander("unknown flag")
+		}
+	}
+
+	if mode != notset {
+		m := MODE_value[mode]
+		if m == UNKNOWN_MODE { return errHander("mode is unknown") }
+
+		if FETCH&m == FETCH { conf.Option["fetch"] = true }
+		if DELTA&m == DELTA { conf.Option["delta"] = true }
+		if SIGN&m == SIGN { conf.Option["sign"] = true }
+		if COMMIT&m == COMMIT { conf.Option["commit"] = true }
+	}
+	if save != notset {
+		conf.Option["save"] = true
+	}
+
+	return nil
 }
 
 func fetch(conf *MEConfig) ([]byte, error) {
@@ -704,11 +778,10 @@ func commit(envelope *cb.Envelope, conf *MEConfig) error {
 	return nil
 }
 
-func f_method(conf *MEConfig) ([]byte, error) {
-	is_save := conf.Option["save"]
-
+func f_mode(conf *MEConfig) ([]byte, error) {
 	blockdata, err := fetch(conf)
 	if err != nil { return nil, err }
+	is_save := conf.Option["save"]
 	if is_save && conf.FetchConfig["from"] == "channel" {
 		if err = ioutil.WriteFile(conf.FetchConfig["fetch_file"], blockdata, 0644); err != nil {
 			return nil, fmt.Errorf("write fetch_file err: %s", err)
@@ -717,149 +790,149 @@ func f_method(conf *MEConfig) ([]byte, error) {
 	return blockdata, nil
 }
 
-func fd_method(conf *MEConfig) (*cb.Envelope, error) {
-	blockdata, err := f_method(conf)
-	if err != nil { return nil, fmt.Errorf("fd_method f_method err: %s", err) }
+func fd_mode(conf *MEConfig) (*cb.Envelope, error) {
+	blockdata, err := f_mode(conf)
+	if err != nil { return nil, fmt.Errorf("fd_mode f_mode err: %s", err) }
 	envelope, err := delta(blockdata, conf)
-	if err != nil { return nil, fmt.Errorf("fd_method delta err: %s", err) }
+	if err != nil { return nil, fmt.Errorf("fd_mode delta err: %s", err) }
 	data, err := proto.Marshal(envelope)
-	if err != nil { return nil, fmt.Errorf("fd_method marshal err: %s", err) }
+	if err != nil { return nil, fmt.Errorf("fd_mode marshal err: %s", err) }
 	file := conf.DeltaConfig["delta_file"].(string)
 	if file == "" {
-		return nil, fmt.Errorf("fd_method err: please set delta_config.delta_file")
+		return nil, fmt.Errorf("fd_mode err: please set delta_config.delta_file")
 	}
 	err = ioutil.WriteFile(file, data, 0660)
-	if err != nil { return nil, fmt.Errorf("fd_method write file err: %s", err) }
+	if err != nil { return nil, fmt.Errorf("fd_mode write file err: %s", err) }
 	return envelope, nil
 }
 
-func fds_method(conf *MEConfig) (*cb.Envelope, error) {
-	is_save := conf.Option["save"]
-	blockdata, err := f_method(conf)
-	if err != nil { return nil, fmt.Errorf("f_method err: %s", err) }
+func fds_mode(conf *MEConfig) (*cb.Envelope, error) {
+	blockdata, err := f_mode(conf)
+	if err != nil { return nil, fmt.Errorf("f_mode err: %s", err) }
 	envelope, err := delta(blockdata, conf)
+	is_save := conf.Option["save"]
 	if is_save {
 		file := conf.DeltaConfig["delta_file"].(string)
-		if file == "" { return nil, fmt.Errorf("fds_method err: save is true but delta_config.delta_file is nil") }
+		if file == "" { return nil, fmt.Errorf("fds_mode err: save is true but delta_config.delta_file is nil") }
 		data, err := proto.Marshal(envelope)
-		if err != nil { return nil, fmt.Errorf("fds_method marshal err: %s", err) }
+		if err != nil { return nil, fmt.Errorf("fds_mode marshal err: %s", err) }
 		err = ioutil.WriteFile(file, data, 0660)
-		if err != nil { return nil, fmt.Errorf("fds_method write file err: %s", err) }
+		if err != nil { return nil, fmt.Errorf("fds_mode write file err: %s", err) }
 	}
 
 	signedenvelope, err := sign(envelope, conf)
-	if err != nil { return nil, fmt.Errorf("fds_method sign err: %s", err) }
+	if err != nil { return nil, fmt.Errorf("fds_mode sign err: %s", err) }
 
 	signedenvelopedata, err := proto.Marshal(signedenvelope)
 	if err != nil { return nil, fmt.Errorf("marshal signedenvelope error: %s", err) }
 	file := conf.SignConfig["sign_file"]
-	if file == "" { return nil, fmt.Errorf("fds_method err: please set sign_config.sign_file") }
+	if file == "" { return nil, fmt.Errorf("fds_mode err: please set sign_config.sign_file") }
 	err = ioutil.WriteFile(file, signedenvelopedata, 0660)
 	if err != nil { return nil, fmt.Errorf("write signedenvelope err: %s", err) }
 
 	return signedenvelope, nil
 }
 
-func s_method(conf *MEConfig) (*cb.Envelope, error) {
+func s_mode(conf *MEConfig) (*cb.Envelope, error) {
 	var signedenvelope *cb.Envelope
 
 	if conf.SignConfig["from"] == "file" {
 		file := conf.SignConfig["sign_file"]
-		if file == "" { return nil, fmt.Errorf("s_method err: please set sign_config.sign_file") }
+		if file == "" { return nil, fmt.Errorf("s_mode err: please set sign_config.sign_file") }
 		data, err := ioutil.ReadFile(file)
-		if err != nil { return nil, fmt.Errorf("s_method read file err: %s", err) }
+		if err != nil { return nil, fmt.Errorf("s_mode read file err: %s", err) }
 
 		envelope, err := fprotoutils.UnmarshalEnvelope(data)
-		if err != nil { return nil, fmt.Errorf("s_method unmarshal err: %s", err) }
+		if err != nil { return nil, fmt.Errorf("s_mode unmarshal err: %s", err) }
 		signedenvelope, err = sign(envelope, conf)
-		if err != nil { return nil, fmt.Errorf("fds_method sign err: %s", err) }
+		if err != nil { return nil, fmt.Errorf("fds_mode sign err: %s", err) }
 		signedenvelopedata, err := proto.Marshal(signedenvelope)
 		if err != nil { return nil, fmt.Errorf("marshal signedenvelope err: %s", err) }
 		err = ioutil.WriteFile(file, signedenvelopedata, 0660)
 		if err != nil { return nil, fmt.Errorf("write signedenvelope err: %s", err) }
 	}else {
-		return nil, fmt.Errorf("s_method err: please set sign_config's from='file' and set sign_file")
+		return nil, fmt.Errorf("s_mode err: please set sign_config's from='file' and set sign_file")
 	}
 
 	return signedenvelope, nil
 }
 
-func sc_method(conf *MEConfig) error {
-	signedenvelope, err := s_method(conf)
-	if err != nil { return fmt.Errorf("sc_method s_method err: %s", err) }
+func sc_mode(conf *MEConfig) error {
+	signedenvelope, err := s_mode(conf)
+	if err != nil { return fmt.Errorf("sc_mode s_mode err: %s", err) }
 
 	return commit(signedenvelope, conf)
 }
 
-func c_method(conf *MEConfig) error {
+func c_mode(conf *MEConfig) error {
 	if conf.CommitConfig["from"] == "file" {
 		file := conf.CommitConfig["commit_file"]
-		if file == "" { return fmt.Errorf("c_method err: please set commit_config.commit_file") }
+		if file == "" { return fmt.Errorf("c_mode err: please set commit_config.commit_file") }
 		data, err := ioutil.ReadFile(file)
-		if err != nil { return fmt.Errorf("s_method read file err: %s", err) }
+		if err != nil { return fmt.Errorf("s_mode read file err: %s", err) }
 		signedenvelope, err := fprotoutils.UnmarshalEnvelope(data)
-		if err != nil { return fmt.Errorf("s_method unmarshal err: %s", err) }
+		if err != nil { return fmt.Errorf("s_mode unmarshal err: %s", err) }
 
 		return commit(signedenvelope, conf)
 	}
-	return fmt.Errorf("c_method err: please set commit_config's from='file' and set commit_file")
+	return fmt.Errorf("c_mode err: please set commit_config's from='file' and set commit_file")
 }
 
-func fdsc_method(conf *MEConfig) error {
-	is_save := conf.Option["save"]
-
-	blockdata, err := f_method(conf)
-	if err != nil { return fmt.Errorf("fdsc_method f_method err: %s", err) }
+func fdsc_mode(conf *MEConfig) error {
+	blockdata, err := f_mode(conf)
+	if err != nil { return fmt.Errorf("fdsc_mode f_mode err: %s", err) }
 	envelope, err := delta(blockdata, conf)
-	if err != nil { return fmt.Errorf("fdsc_method delta err: %s", err) }
+	if err != nil { return fmt.Errorf("fdsc_mode delta err: %s", err) }
+	is_save := conf.Option["save"]
 	if is_save {
 		data, err := proto.Marshal(envelope)
-		if err != nil { return fmt.Errorf("fdsc_method marshal err: %s", err) }
+		if err != nil { return fmt.Errorf("fdsc_mode marshal err: %s", err) }
 		file := conf.DeltaConfig["delta_file"].(string)
-		if file == "" { return fmt.Errorf("fdsc_method err: save is true but delta_config.delta_file is nil") }
+		if file == "" { return fmt.Errorf("fdsc_mode err: save is true but delta_config.delta_file is nil") }
 		err = ioutil.WriteFile(file, data, 0660)
-		if err != nil { return fmt.Errorf("fdsc_method write file err: %s", err) }
+		if err != nil { return fmt.Errorf("fdsc_mode write file err: %s", err) }
 	}
 
 	signedenvelope, err := sign(envelope, conf)
-	if err != nil { return fmt.Errorf("fdsc_method sign err: %s", err) }
+	if err != nil { return fmt.Errorf("fdsc_mode sign err: %s", err) }
 	if is_save {
 		signedenvelopedata, err := proto.Marshal(signedenvelope)
 		if err != nil { return fmt.Errorf("marshal signedenvelope err: %s", err) }
 		file := conf.SignConfig["sign_file"]
-		if file == "" { return fmt.Errorf("fdsc_method err: save is true but sign_config.sign_file is nil") }
+		if file == "" { return fmt.Errorf("fdsc_mode err: save is true but sign_config.sign_file is nil") }
 		err = ioutil.WriteFile(file, signedenvelopedata, 0660)
 		if err != nil { return fmt.Errorf("write signedenvelope err: %s", err) }
 	}
 
 	err = commit(signedenvelope, conf)
-	if err != nil { return fmt.Errorf("fdsc_method commit err: %s", err) }
+	if err != nil { return fmt.Errorf("fdsc_mode commit err: %s", err) }
 
 	return nil
 }
 
-func (m *METHOD) do(conf *MEConfig) error {
+func (m *MODE) do(conf *MEConfig) error {
 	if conf == nil { return fmt.Errorf("do args is nil") }
-	method := *m
+	mode := *m
 	var err error
 
-	if method == F {
-		_, err = f_method(conf)
-	}else if method == FD {
-		_, err = fd_method(conf)
-	}else if method == FDS {
-		_, err = fds_method(conf)
-	}else if method == S {
-		_, err = s_method(conf)
-	}else if method == SC {
-		err = sc_method(conf)
-	}else if method == C {
-		err = c_method(conf)
-	}else if method == FDSC {
-		err = fdsc_method(conf)
+	if mode == F {
+		_, err = f_mode(conf)
+	}else if mode == FD {
+		_, err = fd_mode(conf)
+	}else if mode == FDS {
+		_, err = fds_mode(conf)
+	}else if mode == S {
+		_, err = s_mode(conf)
+	}else if mode == SC {
+		err = sc_mode(conf)
+	}else if mode == C {
+		err = c_mode(conf)
+	}else if mode == FDSC {
+		err = fdsc_mode(conf)
 	}else {
-		return fmt.Errorf("未知操作模式[%d]", method)
+		return fmt.Errorf("未知操作模式[%d]", mode)
 	}
 
 	return err
 }
+

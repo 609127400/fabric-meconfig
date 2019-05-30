@@ -43,5 +43,36 @@
 	- from：值为file，则从signed_file指定的配置交易文件进行读取数据并进行签名。值为fetch，则对从fetch动作获取的Envelope配置交易数据进行签名。
 	- sign_file：当from值为file时，指定签名动作要签名的文件的路径。当save动作开启时，签名后的配置交易保存在此文件中。
 
+#### 命令行flag
+
+命令行flag会覆盖meconfig.json中关于option中的功能定义。即，当使用命令行flag时，meconfig.json中的option项的配置将哑掉（其余配置正常工作）。
+
+##### flag
+
+* `-s`或`--save`：与option.save功能一致，可配合任意命令使用。若不设置，则默认使用option.save的值。
+* `-m`或`--mode`：指定模式，值为f/fd/fds/s/sc/c/fdsc：
+	- `f`：fetch。单独获取配置。
+	- `fd`：fetch/delta。获取配置并计算增量配置。
+	- `fds`：fetch/delta/sign。获取配置，计算增量配置，并签名。
+	- `s`：sign。单独对增量配置进行签名。
+	- `sc`：sign/commit。签名并提交交易。
+	- `c`：commit。单独进行提交。
+	- `fdsc`：fetch/delta/sign/commit。获取配置，计算增量配置，签名增量配置并提交。
+
+##### 示例
+
+获取配置，计算增量配置，并签名。同时保存中间生成数据：
+
+`meconfig --mode fds -s`
+
+#### 编译
+
+该软件编译比较简单。由于使用了部分hyperledger-fabric源码中的函数和数据结构，因此最好的方式就是放在hyperledger-fabric源码目录中进行编译。如在hyperledger-fabric v1.0源码目录common/tools下执行如下操作：
+
+```git clone https://github.com/609127400/fabric-meconfig.git```
+
+```cd fabric-meconfig```
+
+```go build meconfig.go```
 
 

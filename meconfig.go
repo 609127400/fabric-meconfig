@@ -3,7 +3,6 @@ package main
 
 import(
 	"fmt"
-	//"flag"
 	"strings"
 	"os"
 	"io/ioutil"
@@ -17,7 +16,6 @@ import(
 	"encoding/pem"
 	"encoding/hex"
 	"hash"
-	//"strconv"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"

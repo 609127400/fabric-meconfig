@@ -17,6 +17,8 @@ import(
 	"encoding/hex"
 	"hash"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -63,7 +65,9 @@ const (
 	SIGNCERTS_DIR string = "signcerts"
 	KEYSTORE_DIR string = "keystore"
 
-	MECONFIG_FILE_PATH string = "./meconfig.json"
+	MECONFIG_FILE_PATH string = "./"
+	MECONFIG_FILE string = "meconfig"
+	FLAG_NOSET string = "noset"
 )
 
 type MODE int
@@ -104,36 +108,44 @@ var MODE_value = map[string]MODE{
 	"unknown mode": UNKNOWN_MODE,
 }
 
+var mode_flag string
+var encode_flag string
+var decode_flag string
+var is_save bool
+
 //TODO:
 //1.怎么找到配置项，以最简单的形式提供修改配置项的值
 //2.怎么更简单的签名，从原配置块中获取应该有的策略，然后形成签名spec，去签名。还有，如何签名？是通过网络分布式的签，还是在一个节点上集中签
 //3.fabric多版本的支持
 func main() {
-	conf, err := getMEConfig()
-	if err != nil {
-		fmt.Errorf("获取meconfig.json配置失败, err: %s\n", err)
-		return
+	mecmd := &cobra.Command{
+	    Use: "meconfig",
+	    Short: "more easy to modify config of hyperledger-fabric's channel",
+	    PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		viper.SetConfigName(MECONFIG_FILE)
+		viper.AddConfigPath(MECONFIG_FILE_PATH)
+		err := viper.ReadInConfig()
+		if err != nil { return fmt.Errorf("Fatal error config file: %s", err) }
+		return nil
+	    },
+	    RunE: func(cmd *cobra.Command, args []string) error {
+		mode := MODE_value[mode_flag]
+		if mode == UNKNOWN_MODE { return fmt.Errorf("unknown mode") }
+		err = mode.do(conf)
+		if err != nil { return fmt.Errorf("do error: %s", err) }
+		return nil
+	    },
+	    Version: "1.0",
 	}
+	flags := mecmd.PersistentFlags()
+	flags.StringVarP(&mode_flag, "mode", "m", FLAG_NOSET, "mode of operation of config")
+	flags.StringVarP(&encode_flag, "encode", "e", FLAG_NOSET, "Converts a JSON document to proto")
+	flags.StringVarP(&decode_flag, "decode", "d", FLAG_NOSET, "Converts a proto message to JSON")
+	flags.BoolVarP(&is_save, "save", "s", false, "if save artificial config file during operation")
 
-	err = adjustMEConfigByCmdLine(conf)
-	if err != nil {
-		fmt.Printf("根据命令行调整meconfig.json配置失败，err:%s\n", err)
-		return
+	if mecmd.Execute() != nil {
+		os.Exit(1)
 	}
-
-	mode := getMode(conf)
-	if mode == UNKNOWN_MODE {
-		fmt.Println("未知的功能模式")
-		return
-	}
-
-	err = mode.do(conf)
-	if err != nil {
-		fmt.Printf("执行失败：%s\n", err)
-		return
-	}
-
-	fmt.Println("执行成功!")
 }
 
 func findAndSetValue(leafkey string, leafjsonvalue interface{}, configvalue *cb.ConfigValue) error {
@@ -934,3 +946,55 @@ func (m *MODE) do(conf *MEConfig) error {
 	return err
 }
 
+/*
+//msgName要具体到某个库下的数据类型，该类型经过proto.RegisterType()注册过，在这里的proto.MessageType即可识别
+func encode(msgName string, input, output *os.File) error {
+	msgType := proto.MessageType(msgName)
+	if msgType == nil {
+		return errors.Errorf("message of type %s unknown", msgType)
+	}
+	msg := reflect.New(msgType.Elem()).Interface().(proto.Message)
+
+	err := protolator.DeepUnmarshalJSON(input, msg)
+	if err != nil {
+		return errors.Wrapf(err, "error decoding input")
+	}
+
+	out, err := proto.Marshal(msg)
+	if err != nil {
+		return errors.Wrapf(err, "error marshaling")
+	}
+
+	_, err = output.Write(out)
+	if err != nil {
+		return errors.Wrapf(err, "error writing output")
+	}
+
+	return nil
+}
+
+func decode(msgName string, input, output *os.File) error {
+	msgType := proto.MessageType(msgName)
+	if msgType == nil {
+		return errors.Errorf("message of type %s unknown", msgType)
+	}
+	msg := reflect.New(msgType.Elem()).Interface().(proto.Message)
+
+	in, err := ioutil.ReadAll(input)
+	if err != nil {
+		return errors.Wrapf(err, "error reading input")
+	}
+
+	err = proto.Unmarshal(in, msg)
+	if err != nil {
+		return errors.Wrapf(err, "error unmarshaling")
+	}
+
+	err = protolator.DeepMarshalJSON(output, msg)
+	if err != nil {
+		return errors.Wrapf(err, "error encoding output")
+	}
+
+	return nil
+}
+*/

@@ -1,18 +1,8 @@
 {
-    "option": {
-        "fetch": true,
-        "delta": true,
-        "sign": true,
-        "commit": true,
-        "save": true
-    },
-
-    "basic_info": {
+    "basic_config": {
         "channel_id": "trusochannel",
         "localmsp_id": "OrgrwMSP",
         "localmsp_path": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/orgrw.legalunion.com/users/Admin@orgrw.legalunion.com/msp",
-        "signmsp_id": "OrdererMSP",
-        "signmsp_path": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/legalunion.com/users/Admin@legalunion.com/msp",
         "orderer_endpoint": "orderer0.legalunion.com:7050",
         "orderer_tls_rootcert": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/legalunion.com/orderers/orderer0.legalunion.com/msp/tlscacerts/tlslegalunion.com-cert.pem"
     },
@@ -24,13 +14,36 @@
     "delta_config": {
         "delta_file": "./delta_envelope.pb",
         "delta_kvs": {
-            "config.channel_group.groups.Orderer.values.BatchSize.value": {"absolute_max_bytes": 102760448,"max_message_count": 5,"preferred_max_bytes": 131072},
-            "config.channel_group.groups.Orderer.values.KafkaBrokers.value": {"brokers": ["kafka0.legalunion.com:9092","kafka1.legalunion.com:9092","kafka2.legalunion.com:9092","kafka3.legalunion.com:9092","kafka4.legalunion.com:9092","kafka5.legalunion.com:9092","kafka6.legalunion.com:9092","kafka7.legalunion.com:9092"]}
+            "config.channel_group.groups.Orderer.values.BatchSize.value": "{\"absolute_max_bytes\": 102760448,\"max_message_count\": 5,\"preferred_max_bytes\": 131072}",
+            "config.channel_group.groups.Orderer.values.KafkaBrokers.value": "{\"brokers\": [\"kafka0.legalunion.com:9092\",\"kafka1.legalunion.com:9092\",\"kafka2.legalunion.com:9092\",\"kafka3.legalunion.com:9092\",\"kafka4.legalunion.com:9092\",\"kafka5.legalunion.com:9092\",\"kafka6.legalunion.com:9092\",\"kafka7.legalunion.com:9092\"]}"
+        },
+        "delta_orgs": {
+            "ShareOrg": {
+                "msp_id": "ShareOrgMSP",
+                "msp_path": "./crypto-config/peerOrganizations/shareorg.example.com/msp",
+                "anchor_peers_enpoint": ["peer0.shareorg.example.com:7051"],
+                "msp_type": "bccsp",
+                "policies": {
+                    "policyname1": {
+                        "type": "ImplicitMeta",
+                        "rule": "ANY ShareOrgMSP"
+                    },
+                    "policyname2": {
+                        "type": "Signature",
+                        "rule": "OR('ShareOrgMSP.member', AND('Org1MSP.member', 'Org2MSP.member'))"
+                    }
+                }
+            }
         }
     },
     "sign_config": {
         "from": "file",
-        "sign_file": "./sigend_envelope.pb"
+        "sign_file": "./sigend_envelope.pb",
+        "sign_msps": {
+            "OrdererMSP": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/legalunion.com/users/Admin@legalunion.com/msp",
+            "OrgrwMSP": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/orgrw.legalunion.com/users/Admin@orgrw.legalunion.com/msp",
+            "OrgreaderMSP": "/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/orgreader.legalunion.com/users/Admin@orgreader.legalunion.com/msp"
+        }
     },
     "commit_config": {
         "from": "sign",

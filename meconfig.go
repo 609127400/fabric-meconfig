@@ -4,6 +4,7 @@ package main
 import(
 	"fmt"
 	"strings"
+	"strconv"
 	"os"
 	"io/ioutil"
 	"encoding/json"
@@ -16,6 +17,7 @@ import(
 	"encoding/pem"
 	"encoding/hex"
 	"hash"
+	"reflect"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -28,15 +30,19 @@ import(
 	fconfig "github.com/hyperledger/fabric/common/config"//1.0
 	fprotoutils "github.com/hyperledger/fabric/protos/utils"
 	fbccsputils "github.com/hyperledger/fabric/bccsp/utils"
-	"github.com/hyperledger/fabric/common/util"
+	fmsp "github.com/hyperledger/fabric/msp"
+	"github.com/hyperledger/fabric/common/tools/protolator"
+	futil "github.com/hyperledger/fabric/common/util"
 	cb "github.com/hyperledger/fabric/protos/common"
 	ab "github.com/hyperledger/fabric/protos/orderer"
 	mb "github.com/hyperledger/fabric/protos/msp"
-	"github.com/hyperledger/fabric/common/tools/configtxlator/update"
+	pb "github.com/hyperledger/fabric/protos/peer"
+	fupdate "github.com/hyperledger/fabric/common/tools/configtxlator/update"
 	fcrypto "github.com/hyperledger/fabric/common/crypto"
 	//"github.com/hyperledger/fabric/common/localmsp"
 	fsw "github.com/hyperledger/fabric/bccsp/sw"
 	peercommon "github.com/hyperledger/fabric/peer/common"
+	fcauthdsl "github.com/hyperledger/fabric/common/cauthdsl"
 )
 
 const (
@@ -59,7 +65,6 @@ const (
 
 	OrdererGroupKey string = fconfig.OrdererGroupKey
 	//...
-
 
 	SEPARATOR string = "."
 	SIGNCERTS_DIR string = "signcerts"
@@ -111,7 +116,8 @@ var MODE_value = map[string]MODE{
 var mode_flag string
 var encode_flag string
 var decode_flag string
-var is_save bool
+var type_flag string
+var is_m, is_s, is_e, is_d, is_t bool
 
 //TODO:
 //1.怎么找到配置项，以最简单的形式提供修改配置项的值
@@ -119,63 +125,409 @@ var is_save bool
 //3.fabric多版本的支持
 func main() {
 	mecmd := &cobra.Command{
-	    Use: "meconfig",
-	    Short: "more easy to modify config of hyperledger-fabric's channel",
-	    PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		viper.SetConfigName(MECONFIG_FILE)
-		viper.AddConfigPath(MECONFIG_FILE_PATH)
-		err := viper.ReadInConfig()
-		if err != nil { return fmt.Errorf("Fatal error config file: %s", err) }
-		return nil
-	    },
-	    RunE: func(cmd *cobra.Command, args []string) error {
-		mode := MODE_value[mode_flag]
-		if mode == UNKNOWN_MODE { return fmt.Errorf("unknown mode") }
-		err = mode.do(conf)
-		if err != nil { return fmt.Errorf("do error: %s", err) }
-		return nil
-	    },
-	    Version: "1.0",
+		Use: "meconfig",
+		Short: "more easy to modify config of hyperledger-fabric's channel",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			//检查flag
+			is_m = mode_flag   != FLAG_NOSET
+			is_e = encode_flag != FLAG_NOSET
+			is_d = decode_flag != FLAG_NOSET
+			is_t = type_flag   != FLAG_NOSET
+			if is_m && !is_s && !is_e && !is_d && !is_t {     //meconfig -m xx
+			}else if is_m && is_s && !is_e && !is_d && !is_t {//meconfig -m xx -s
+			}else if !is_m && !is_s && is_e && !is_d && is_t {//meconfig -e xx -t xx
+			}else if !is_m && !is_s && !is_e && is_d && is_t {//meconfig -d xx -t xx
+			}else { return fmt.Errorf("please check flag") }
+
+			//读取配置
+			viper.SetConfigName(MECONFIG_FILE)
+			viper.AddConfigPath(MECONFIG_FILE_PATH)
+			err := viper.ReadInConfig()
+			if err != nil { return fmt.Errorf("fatal error config file: %s", err) }
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var err error
+			if is_m {
+				mode := MODE_value[mode_flag]
+				if mode == UNKNOWN_MODE { return fmt.Errorf("unknown mode") }
+				err = mode.do()
+				if err != nil { return fmt.Errorf("do error: %s", err) }
+			}else {
+				if is_e {
+					err = encode(encode_flag, type_flag)
+				}else {
+					err = decode(decode_flag, type_flag)
+				}
+				if err != nil { return fmt.Errorf("convert failed: %s", err) }
+			}
+
+			fmt.Println("execute success!")
+			return nil
+		},
 	}
 	flags := mecmd.PersistentFlags()
-	flags.StringVarP(&mode_flag, "mode", "m", FLAG_NOSET, "mode of operation of config")
+	flags.StringVarP(&mode_flag,   "mode",   "m", FLAG_NOSET, "mode of operation of config")
 	flags.StringVarP(&encode_flag, "encode", "e", FLAG_NOSET, "Converts a JSON document to proto")
 	flags.StringVarP(&decode_flag, "decode", "d", FLAG_NOSET, "Converts a proto message to JSON")
-	flags.BoolVarP(&is_save, "save", "s", false, "if save artificial config file during operation")
+	flags.StringVarP(&type_flag,   "type",   "t", FLAG_NOSET, "Converts data's type")
+	flags.BoolVarP(&is_s,          "save",   "s", false,      "if save artificial config file during operation")
 
 	if mecmd.Execute() != nil {
 		os.Exit(1)
 	}
 }
 
-func findAndSetValue(leafkey string, leafjsonvalue interface{}, configvalue *cb.ConfigValue) error {
-	if leafkey == "" || leafjsonvalue == nil || configvalue == nil {
-		return fmt.Errorf("findAndSetValue args is nil")
+func f_mode() ([]byte, error) {
+	blockdata, err := fetch()
+	if err != nil { return nil, err }
+	if is_s && viper.GetString("fetch_config.from") == "channel" {
+		file := viper.GetString("fetch_config.fetch_file")
+		if err = ioutil.WriteFile(file, blockdata, 0644); err != nil {
+			return nil, fmt.Errorf("write fetch_file err: %s", err)
+		}
 	}
+	return blockdata, nil
+}
+
+func fd_mode() (*cb.Envelope, error) {
+	blockdata, err := f_mode()
+	if err != nil { return nil, fmt.Errorf("fd_mode f_mode err: %s", err) }
+	envelope, err := delta(blockdata)
+	if err != nil { return nil, fmt.Errorf("fd_mode delta err: %s", err) }
+	data, err := proto.Marshal(envelope)
+	if err != nil { return nil, fmt.Errorf("fd_mode marshal err: %s", err) }
+	file := viper.GetString("delta_config.delta_file")
+	if file == "" {
+		return nil, fmt.Errorf("fd_mode err: please set delta_config.delta_file")
+	}
+	err = ioutil.WriteFile(file, data, 0660)
+	if err != nil { return nil, fmt.Errorf("fd_mode write file err: %s", err) }
+	return envelope, nil
+}
+
+func fds_mode() (*cb.Envelope, error) {
+	blockdata, err := f_mode()
+	if err != nil { return nil, fmt.Errorf("f_mode err: %s", err) }
+	envelope, err := delta(blockdata)
+	if is_s {
+		file := viper.GetString("delta_config.delta_file")
+		if file == "" { return nil, fmt.Errorf("fds_mode err: save is true but delta_config.delta_file is nil") }
+		data, err := proto.Marshal(envelope)
+		if err != nil { return nil, fmt.Errorf("fds_mode marshal err: %s", err) }
+		err = ioutil.WriteFile(file, data, 0660)
+		if err != nil { return nil, fmt.Errorf("fds_mode write file err: %s", err) }
+	}
+
+	signedenvelope, err := sign(envelope)
+	if err != nil { return nil, fmt.Errorf("fds_mode sign err: %s", err) }
+
+	signedenvelopedata, err := proto.Marshal(signedenvelope)
+	if err != nil { return nil, fmt.Errorf("marshal signedenvelope error: %s", err) }
+	file := viper.GetString("sign_config.sign_file")
+	if file == "" { return nil, fmt.Errorf("fds_mode err: please set sign_config.sign_file") }
+	err = ioutil.WriteFile(file, signedenvelopedata, 0660)
+	if err != nil { return nil, fmt.Errorf("write signedenvelope err: %s", err) }
+
+	return signedenvelope, nil
+}
+
+func s_mode() (*cb.Envelope, error) {
+	var signedenvelope *cb.Envelope
+
+	if viper.GetString("sign_config.from") == "file" {
+		file := viper.GetString("sign_config.sign_file")
+		if file == "" { return nil, fmt.Errorf("s_mode err: please set sign_config.sign_file") }
+		data, err := ioutil.ReadFile(file)
+		if err != nil { return nil, fmt.Errorf("s_mode read file err: %s", err) }
+
+		envelope, err := fprotoutils.UnmarshalEnvelope(data)
+		if err != nil { return nil, fmt.Errorf("s_mode unmarshal err: %s", err) }
+		signedenvelope, err = sign(envelope)
+		if err != nil { return nil, fmt.Errorf("fds_mode sign err: %s", err) }
+		signedenvelopedata, err := proto.Marshal(signedenvelope)
+		if err != nil { return nil, fmt.Errorf("marshal signedenvelope err: %s", err) }
+		err = ioutil.WriteFile(file, signedenvelopedata, 0660)
+		if err != nil { return nil, fmt.Errorf("write signedenvelope err: %s", err) }
+	}else {
+		return nil, fmt.Errorf("s_mode err: please set sign_config's from='file' and set sign_file")
+	}
+
+	return signedenvelope, nil
+}
+
+func sc_mode() error {
+	signedenvelope, err := s_mode()
+	if err != nil { return fmt.Errorf("sc_mode s_mode err: %s", err) }
+
+	return commit(signedenvelope)
+}
+
+func c_mode() error {
+	if viper.GetString("commit_config.from") == "file" {
+		file := viper.GetString("commit_config.commit_file")
+		if file == "" { return fmt.Errorf("c_mode err: please set commit_config.commit_file") }
+		data, err := ioutil.ReadFile(file)
+		if err != nil { return fmt.Errorf("s_mode read file err: %s", err) }
+		signedenvelope, err := fprotoutils.UnmarshalEnvelope(data)
+		if err != nil { return fmt.Errorf("s_mode unmarshal err: %s", err) }
+
+		return commit(signedenvelope)
+	}
+	return fmt.Errorf("c_mode err: please set commit_config's from='file' and set commit_file")
+}
+
+func fdsc_mode() error {
+	blockdata, err := f_mode()
+	if err != nil { return fmt.Errorf("fdsc_mode f_mode err: %s", err) }
+	envelope, err := delta(blockdata)
+	if err != nil { return fmt.Errorf("fdsc_mode delta err: %s", err) }
+	if is_s {
+		data, err := proto.Marshal(envelope)
+		if err != nil { return fmt.Errorf("fdsc_mode marshal err: %s", err) }
+		file := viper.GetString("delta_config.delta_file")
+		if file == "" { return fmt.Errorf("fdsc_mode err: save is true but delta_config.delta_file is nil") }
+		err = ioutil.WriteFile(file, data, 0660)
+		if err != nil { return fmt.Errorf("fdsc_mode write file err: %s", err) }
+	}
+
+	signedenvelope, err := sign(envelope)
+	if err != nil { return fmt.Errorf("fdsc_mode sign err: %s", err) }
+	if is_s {
+		signedenvelopedata, err := proto.Marshal(signedenvelope)
+		if err != nil { return fmt.Errorf("marshal signedenvelope err: %s", err) }
+		file := viper.GetString("sign_config.sign_file")
+		if file == "" { return fmt.Errorf("fdsc_mode err: save is true but sign_config.sign_file is nil") }
+		err = ioutil.WriteFile(file, signedenvelopedata, 0660)
+		if err != nil { return fmt.Errorf("write signedenvelope err: %s", err) }
+	}
+
+	err = commit(signedenvelope)
+	if err != nil { return fmt.Errorf("fdsc_mode commit err: %s", err) }
+
+	return nil
+}
+
+func (m *MODE) do() error {
+	mode := *m
+	var err error
+
+	if mode == F {
+		_, err = f_mode()
+	}else if mode == FD {
+		_, err = fd_mode()
+	}else if mode == FDS {
+		_, err = fds_mode()
+	}else if mode == S {
+		_, err = s_mode()
+	}else if mode == SC {
+		err = sc_mode()
+	}else if mode == C {
+		err = c_mode()
+	}else if mode == FDSC {
+		err = fdsc_mode()
+	}else {
+		return fmt.Errorf("未知操作模式[%d]", mode)
+	}
+
+	return err
+}
+
+func fetch() ([]byte, error) {
+	fmt.Println("start to fetch...")
+
+	var data []byte
+	var err error
+
+	if viper.GetString("fetch_config.from") == "channel" {
+		fmt.Println("fetch config block from channel...")
+		data, err = peerChannelFetchNewestConfigblock()
+		if err != nil { return nil, err }
+	}else {
+		file := viper.GetString("fetch_config.fetch_file")
+		fmt.Printf("fetch config block from file [%s]\n", file)
+		data, err = ioutil.ReadFile(file)
+		if err != nil { return nil, err }
+	}
+
+	return data, nil
+}
+
+func delta(blockdata []byte) (*cb.Envelope, error) {
+	fmt.Println("start to delta...")
+	var err error
+	if blockdata == nil { return nil, fmt.Errorf("blockdata or conf is nil") }
+	//1.找出原有配置信息
+	//把配置块Unmarshal成Block，进而分解其中的Envelope（Block.Data.data[0]），该Envelope为一个CONFIG_UPDATE交易
+	//分解Envelope中的ConfigEnvelope(Envelope.payload.data)，这里的配置包含了之前的所有配置信息。
+	now_config := getConfigFromBlock(blockdata)
+	if now_config == nil {
+		return nil, fmt.Errorf("get config from configblock error")
+	}
+	new_config := getConfigFromBlock(blockdata)
+
+	//2.在new_config中更新配置
+	err = deltaKvs(new_config)
+	if err != nil { return nil, fmt.Errorf("delta kvs err: %s", err) }
+	err = deltaOrgs(new_config)
+	if err != nil { return nil, fmt.Errorf("delta orgs err: %s", err) }
+
+	//3.形成新的ConfigUpdateEnvelope
+	//可以参考Envelope.payload.data.last_update，该结构是一个Envelope，但是一个升级配置的Envelope，
+	//其中Envelope.payload.data.last_update.payload.data即为一个ConfigUpdateEnvelope，
+	//升级的原始数据即是ConfigUpdateEnvelope.config_update
+	//签名为ConfigUpdateEnvelope.signatures
+	configupdate, err := fupdate.Compute(now_config, new_config)
+	if err != nil {
+		return nil, fmt.Errorf("Compute error: %s", err)
+	}
+	//4.将新的升级配置对象装入信封
+	configupdate.ChannelId = viper.GetString("basic_config.channel_id")
+
+	ch := &cb.ChannelHeader{
+		Type: int32(cb.HeaderType_CONFIG_UPDATE),
+		ChannelId: configupdate.ChannelId,
+	}
+
+	header   := &cb.Header{}
+	header.ChannelHeader, err = proto.Marshal(ch)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling channelheader error: %s", err)
+	}
+
+	configupdateenvelope := &cb.ConfigUpdateEnvelope{}
+	configupdateenvelope.ConfigUpdate, err = proto.Marshal(configupdate)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling configupdate error: %s", err)
+	}
+	data, err := proto.Marshal(configupdateenvelope)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling configupdateenvelope error: %s", err)
+	}
+	payload, err := proto.Marshal(&cb.Payload{ Data: data })
+	if err != nil {
+		return nil, fmt.Errorf("marshaling payload error: %s", err)
+	}
+
+	envelope := &cb.Envelope{ Payload: payload }
+
+	return envelope, nil
+}
+
+func sign(envelope *cb.Envelope) (*cb.Envelope, error) {
+	fmt.Println("start to sign...")
+	if envelope == nil { return nil, fmt.Errorf("args is nil") }
+	//1.获取配置信息
+	channelid := viper.GetString("basic_config.channel_id")
+	local_msp_id := viper.GetString("basic_config.localmsp_id")
+	local_msp_path := viper.GetString("basic_config.localmsp_path")
+	if channelid == "" || local_msp_id == "" || local_msp_path == "" {
+		return nil, fmt.Errorf("channel id or local msp is nil")
+	}
+	sign_msps := viper.GetStringMapString("sign_config.sign_msps")
+	if sign_msps == nil { return nil, fmt.Errorf("msp for sign is nil") }
 
 	var err error
-	var data []byte
-	data, err = json.Marshal(leafjsonvalue)
-	if err != nil { return err }
+	var signer *mspSigner
+	//2.从信封中分解出待签名的升级配置
+	payload := &cb.Payload{}
+	if err = proto.Unmarshal(envelope.Payload, payload); err != nil {
+		return nil, fmt.Errorf("Unmarshal Payload err: %s", err)
+	}
+	cue := &cb.ConfigUpdateEnvelope{}
+	if err = proto.Unmarshal(payload.Data, cue); err != nil {
+		return nil, fmt.Errorf("Unmarshal Payload.Data err: %s", err)
+	}
+	//3.多个msp对升级配置进行签名
+	for mspid, msppath := range sign_msps {
+		signer, err = getSigner(mspid, msppath)
+		if err != nil { return nil, err }
 
-	switch leafkey {
-	case fconfig.KafkaBrokersKey:
-		brokers := &ab.KafkaBrokers{}
-		err = json.Unmarshal(data, brokers)
-		if err != nil { return err }
-		data, err = proto.Marshal(brokers)
-		if err != nil { return err }
-	case fconfig.BatchSizeKey:
-		batchsize := &ab.BatchSize{}
-		err = json.Unmarshal(data, batchsize)
-		if err != nil { return err }
-		data, err = proto.Marshal(batchsize)
-		if err != nil { return err }
-	default:
-		return fmt.Errorf("指定配置项修改功能暂未实现")
+		sh, err := signer.NewSignatureHeader()
+		if err != nil { return nil, err }
+		data, err := fprotoutils.Marshal(sh)
+		if err != nil { return nil, err }
+		cs := &cb.ConfigSignature{ SignatureHeader: data }
+		cs.Signature, err = signer.Sign(futil.ConcatenateBytes(cs.SignatureHeader, cue.ConfigUpdate))
+
+		cue.Signatures = append(cue.Signatures, cs)
 	}
 
-	configvalue.Value = data
+	//4.使用本地msp组装新的签名信封
+	signer, err = getSigner(local_msp_id, local_msp_path)
+	if err != nil { return nil, err }
+	signedenvelope, err := fprotoutils.CreateSignedEnvelope(cb.HeaderType_CONFIG_UPDATE, channelid, signer, cue, 0, 0)
+	if err != nil { return nil, fmt.Errorf("CreateSignedEnvelope err: %s", err) }
+
+	return signedenvelope, nil
+}
+
+func commit(envelope *cb.Envelope) error {
+	fmt.Println("start to commit...")
+	if envelope == nil { return fmt.Errorf("commit args is nil") }
+	//os.Setenv(orderer_address)
+	//bc, err = peercommon.GetBroadcastClient()//v1.2，需要设置一些环境变量
+	orderer_endpoint := viper.GetString("basic_config.orderer_endpoint")
+	orderer_tls_rootcert := viper.GetString("basic_config.orderer_tls_rootcert")
+	if orderer_endpoint == "" || orderer_tls_rootcert == "" {
+		return fmt.Errorf("orderer_endpoint or orderer_tls_rootcert is nil")
+	}
+	bc, err := peercommon.GetBroadcastClient(orderer_endpoint, true, orderer_tls_rootcert)//v1.0
+	if err != nil { return fmt.Errorf("GetBroadcastClient error: %s", err) }
+
+	err = bc.Send(envelope)
+	if err != nil { return fmt.Errorf("Send error: %s\n", err) }
+
+	bc.Close()
+	return nil
+}
+
+//msgName要具体到某个库下的数据类型，该类型经过proto.RegisterType()注册过，在这里的proto.MessageType即可识别
+func encode(path, msgname string) error {
+	msgtype := proto.MessageType(msgname)
+	if msgtype == nil { return fmt.Errorf("message of type %s unknown", msgtype) }
+	msg := reflect.New(msgtype.Elem()).Interface().(proto.Message)
+
+	file, err := os.OpenFile(path, os.O_RDONLY, 0600)
+	if err != nil { return fmt.Errorf("open [%s] err: %s", path, err) }
+	err = protolator.DeepUnmarshalJSON(file, msg)
+	if err != nil { return fmt.Errorf("error decoding input: %s", err) }
+
+	out, err := proto.Marshal(msg)
+	if err != nil { return fmt.Errorf("marshaling err: %s", err) }
+	file.Close()
+
+	path = path + ".pb"
+	file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil { return fmt.Errorf("open [%s] err: %s", path, err) }
+	_, err = file.Write(out)
+	if err != nil { return fmt.Errorf("writing output[%s] err: %s", path, err) }
+	file.Close()
+
+	return nil
+}
+
+func decode(path, msgname string) error {
+	msgtype := proto.MessageType(msgname)
+	if msgtype == nil { return fmt.Errorf("message of type %s unknown", msgtype) }
+	msg := reflect.New(msgtype.Elem()).Interface().(proto.Message)
+
+	file, err := os.OpenFile(path, os.O_RDONLY, 0600)
+	if err != nil { return fmt.Errorf("open [%s] err: %s", path, err) }
+	in, err := ioutil.ReadAll(file)
+	if err != nil { return fmt.Errorf("reading input err: %s", err) }
+
+	err = proto.Unmarshal(in, msg)
+	if err != nil { return fmt.Errorf("unmarshaling err: %s", err) }
+	file.Close()
+
+	path = path + ".json"
+	file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil { return fmt.Errorf("open [%s] err: %s", path, err) }
+	err = protolator.DeepMarshalJSON(file, msg)
+	if err != nil { return fmt.Errorf("encoding output err: %s", err) }
+	file.Close()
+
 	return nil
 }
 
@@ -205,25 +557,24 @@ func getConfigFromBlock(configblockdata []byte) *cb.Config {
 }
 
 //peer channel fetch newest config block
-func peerChannelFetchNewestConfigblock(conf *MEConfig) ([]byte, error) {
-	if conf == nil {
-		return nil, fmt.Errorf("conf is nil")
-	}
+func peerChannelFetchNewestConfigblock() ([]byte, error) {
 	//v1.0 - 至下文建立client对象，v1.2有专门函数建立，不用这样一步一步来
 	var opts []grpc.DialOption
 	var tls = true//暂时默认tls为true，之后通过配置文件来
+	orderer_endpoint := viper.GetString("basic_config.orderer_endpoint")
 	if tls {
-		if conf.BasicInfo["orderer_tls_rootcert"] != "" {
-			creds, err := credentials.NewClientTLSFromFile(conf.BasicInfo["orderer_tls_rootcert"], "")
+		orderer_tls_rootcert := viper.GetString("basic_config.orderer_tls_rootcert")
+		if orderer_tls_rootcert != "" {
+			creds, err := credentials.NewClientTLSFromFile(orderer_tls_rootcert, "")
 			if err != nil {
-				return nil, fmt.Errorf("Error connecting to %s due to %s", conf.BasicInfo["orderer_endpoint"] , err)
+				return nil, fmt.Errorf("Error connecting to %s due to %s", orderer_endpoint, err)
 			}
 			opts = append(opts, grpc.WithTransportCredentials(creds))
 		}
 	} else {
 		opts = append(opts, grpc.WithInsecure())
 	}
-	conn, err := grpc.Dial(conf.BasicInfo["orderer_endpoint"], opts...)
+	conn, err := grpc.Dial(orderer_endpoint, opts...)
 	if err != nil { return nil, err }
 
 	client, err := ab.NewAtomicBroadcastClient(conn).Deliver(context.TODO())
@@ -237,12 +588,15 @@ func peerChannelFetchNewestConfigblock(conf *MEConfig) ([]byte, error) {
 		Stop:     position,
 		Behavior: ab.SeekInfo_BLOCK_UNTIL_READY,
 	}
-	version := int32(0)
-	epoch := uint64(0)
-	channelid := conf.BasicInfo["channel_id"]
-	signer, err := getSigner(conf)
+	channelid := viper.GetString("basic_config.channel_id")
+	local_msp_id := viper.GetString("basic_config.localmsp_id")
+	local_msp_path := viper.GetString("basic_config.localmsp_path")
+	if channelid == "" || local_msp_id == "" || local_msp_path == "" {
+		return nil, fmt.Errorf("channel id or local msp is nil")
+	}
+	signer, err := getSigner(local_msp_id, local_msp_path)
 	if err != nil { return nil, err }
-	envelope, err := fprotoutils.CreateSignedEnvelope(cb.HeaderType_CONFIG_UPDATE, channelid, signer, seekInfo, version, epoch)
+	envelope, err := fprotoutils.CreateSignedEnvelope(cb.HeaderType_CONFIG_UPDATE, channelid, signer, seekInfo, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("Error signing envelope1:  %s", err)
 	}
@@ -274,7 +628,7 @@ func peerChannelFetchNewestConfigblock(conf *MEConfig) ([]byte, error) {
 
 	seekInfo.Start.Type = &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: lastconfigblocknum}}
 	seekInfo.Stop.Type = &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: lastconfigblocknum}}
-	envelope, err = fprotoutils.CreateSignedEnvelope(cb.HeaderType_CONFIG_UPDATE, channelid, signer, seekInfo, version, epoch)
+	envelope, err = fprotoutils.CreateSignedEnvelope(cb.HeaderType_CONFIG_UPDATE, channelid, signer, seekInfo, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("Error signing envelope2:  %s", err)
 	}
@@ -317,18 +671,7 @@ type mspSigner struct {
 	hasher hash.Hash
 }
 
-func getSigner(conf *MEConfig) (*mspSigner, error) {
-	if conf == nil {
-		return nil, fmt.Errorf("conf is nil")
-	}
-	var msp_id, msp_path string
-	var ok bool
-	if msp_id, ok = conf.BasicInfo["signmsp_id"]; (!ok || msp_id == "") {
-		msp_id = conf.BasicInfo["localmsp_id"]
-	}
-	if msp_path, ok = conf.BasicInfo["signmsp_path"]; (!ok || msp_path == "") {
-		msp_path = conf.BasicInfo["localmsp_path"]
-	}
+func getSigner(msp_id, msp_path string) (*mspSigner, error) {
 	if msp_id == "" || msp_path == "" {
 		return nil, fmt.Errorf("msp_id or msp_path is nil")
 	}
@@ -418,7 +761,7 @@ func (ms *mspSigner) NewSignatureHeader() (*cb.SignatureHeader, error) {
 	sId := &mb.SerializedIdentity{Mspid: ms.mspid, IdBytes: pemBytes}
 	creatorIdentityRaw, err := proto.Marshal(sId)
 	if err != nil {
-		return nil, fmt.Errorf("Could not marshal a SerializedIdentity structure for identity %s, err %s", ms.mspid, err)
+		return nil, fmt.Errorf("marshal a SerializedIdentity for %s err: %s", ms.mspid, err)
 	}
 
 	nonce, err := fcrypto.GetRandomNonce()
@@ -451,135 +794,51 @@ func (ms *mspSigner) Sign(msg []byte) (signature []byte, err error) {
 	return fsw.MarshalECDSASignature(r, s)
 }
 
-type MEConfig struct {
-	Option       map[string]bool `json:"option,omitempty"`
-	BasicInfo    map[string]string `json:"basic_info,omitempty"`
-	FetchConfig  map[string]string `json:"fetch_config,omitempty"`
-	DeltaConfig  map[string]interface{} `json:"delta_config,omitempty"`
-	SignConfig   map[string]string `json:"sign_config,omitempty"`
-	CommitConfig map[string]string `json:"commit_config,omitempty"`
-	SaveConfig   map[string]string `json:"save_config,omitempty"`
-}
+func findAndSetValue(leafkey string, leafjsonvalue interface{}, configvalue *cb.ConfigValue) error {
+	if leafkey == "" || leafjsonvalue == nil || configvalue == nil {
+		return fmt.Errorf("findAndSetValue args is nil")
+	}
+	var err error
+	var data []byte
+	stringvalue, ok := leafjsonvalue.(string)
+	if !ok { return fmt.Errorf("value of key-values from delta_kvs should be json string") }
 
-func getMEConfig() (*MEConfig, error) {
-	configbyte, err := ioutil.ReadFile(MECONFIG_FILE_PATH)
-	if err != nil { return nil, err }
-
-	conf := &MEConfig{}
-	err = json.Unmarshal(configbyte, conf)
-	if err != nil { return nil, err }
-	return conf, nil
-}
-
-func getMode(conf *MEConfig) MODE {
-	if conf == nil { return UNKNOWN_MODE }
-
-	is_fetch  := conf.Option["fetch"]
-	is_delta  := conf.Option["delta"]
-	is_sign   := conf.Option["sign"]
-	is_commit := conf.Option["commit"]
-	if is_fetch  && !is_delta && !is_sign && !is_commit { return F    }
-	if is_fetch  && is_delta  && !is_sign && !is_commit { return FD   }
-	if is_fetch  && is_delta  && is_sign  && !is_commit { return FDS  }
-	if !is_fetch && !is_delta && is_sign  && !is_commit { return S    }
-	if !is_fetch && !is_delta && is_sign  && is_commit  { return SC   }
-	if !is_fetch && !is_delta && !is_sign && is_commit  { return C    }
-	if is_fetch  && is_delta  && is_sign  && is_commit  { return FDSC }
-
-	return UNKNOWN_MODE
-}
-
-func adjustMEConfigByCmdLine(conf *MEConfig) error {
-	if conf == nil { return fmt.Errorf("conf is nil") }
-
-	notset := "netset"
-	save := notset
-	mode := notset
-	args := os.Args[1:]
-	argslen := len(args)
-	errHander := func(msg string) error {
-		return fmt.Errorf("err: %s.\nusage example:[meconfig --mode fds -s].", msg)
+	switch leafkey {
+	case fconfig.KafkaBrokersKey:
+		brokers := &ab.KafkaBrokers{}
+		err = json.Unmarshal([]byte(stringvalue), brokers)
+		if err != nil { return err }
+		data, err = proto.Marshal(brokers)
+		if err != nil { return err }
+	case fconfig.BatchSizeKey:
+		batchsize := &ab.BatchSize{}
+		err = json.Unmarshal([]byte(stringvalue), batchsize)
+		if err != nil { return err }
+		data, err = proto.Marshal(batchsize)
+		if err != nil { return err }
+	default:
+		return fmt.Errorf("指定配置项修改功能暂未实现")
 	}
 
-	for i := 0; i < argslen; i++ {
-		v := args[i]
-		if v == "-m" || v == "--mode" {
-			if i < argslen - 1 {
-				mode = args[i+1]
-				i++//跳过flag的值
-			}else {
-				return errHander("please set mode value")
-			}
-		}else if v == "-s" || v == "--save" {
-			save = ""
-		}else {
-			return errHander("unknown flag")
-		}
-	}
-
-	if mode != notset {
-		m := MODE_value[mode]
-		if m == UNKNOWN_MODE { return errHander("mode is unknown") }
-
-		if FETCH&m == FETCH { conf.Option["fetch"] = true }
-		if DELTA&m == DELTA { conf.Option["delta"] = true }
-		if SIGN&m == SIGN { conf.Option["sign"] = true }
-		if COMMIT&m == COMMIT { conf.Option["commit"] = true }
-	}
-	if save != notset {
-		conf.Option["save"] = true
-	}
-
+	configvalue.Value = data
 	return nil
 }
 
-func fetch(conf *MEConfig) ([]byte, error) {
-	fmt.Println("start to fetch...")
-	if conf == nil { return nil, fmt.Errorf("fetch args is nil") }
-
-	var data []byte
-	var err error
-
-	if conf.FetchConfig["from"] == "channel" {
-		fmt.Println("fetch config block from channel...")
-		data, err = peerChannelFetchNewestConfigblock(conf)
-		if err != nil { return nil, err }
-	}else {
-		file := conf.FetchConfig["configblock_path"]
-		fmt.Printf("fetch config block from file [%s]\n", file)
-		data, err = ioutil.ReadFile(file)
-		if err != nil { return nil, err }
-	}
-
-	return data, nil
-}
-
-func delta(blockdata []byte, conf *MEConfig) (*cb.Envelope, error) {
-	fmt.Println("start to delta...")
-	var err error
-	if blockdata == nil || conf == nil {
-		return nil, fmt.Errorf("blockdata or conf is nil")
-	}
-	//1.找出原有配置信息
-	//把配置块Unmarshal成Block，进而分解其中的Envelope（Block.Data.data[0]），该Envelope为一个CONFIG_UPDATE交易
-	//分解Envelope中的ConfigEnvelope(Envelope.payload.data)，这里的配置包含了之前的所有配置信息。
-	now_config := getConfigFromBlock(blockdata)
-	if now_config == nil {
-		return nil, fmt.Errorf("get config from configblock error")
-	}
-	new_config := getConfigFromBlock(blockdata)
-
-	//计算后，configgroup为包含配置值对象的ConfigGroup
-	//configgroup中包含工具可能使用到的信息，如连接orderer的tls证书等
-	//但是始终都需要使用本地的东西，如签名的私钥，所以干脆都使用本地的，而不使用configgroup中的
-	//修改值，只会修改这4类值
-	//例子 path=config.channel_group.groups.Orderer.values.KafkaBrokers.value
+func deltaKvs(new_config *cb.Config) error {
+	if new_config == nil || new_config.ChannelGroup == nil { return fmt.Errorf("new_config is nil") }
 	var configgroup *cb.ConfigGroup
 	var configgroups map[string]*cb.ConfigGroup
 	var configvalues map[string]*cb.ConfigValue
 	var configpolicys map[string]*cb.ConfigPolicy
 	var mod_policy string
 	config_type := -1
+	//根据config_path寻找到最终的更新的配置项
+	//计算后，configgroup为包含配置值对象的ConfigGroup
+	//configgroup中包含工具可能使用到的信息，如连接orderer的tls证书等
+	//但是始终都需要使用本地的东西，如签名的私钥，所以干脆都使用本地的，而不使用configgroup中的
+	//修改值，只会修改这4类值
+	//因此根据返回的config_type判断是否找到最终的配置项
+	//例子 path=config.channel_group.groups.Orderer.values.KafkaBrokers.value
 	findconfig := func(path string) int {
 		switch(path) {
 		case ConfigGroup_Groups:
@@ -629,18 +888,16 @@ func delta(blockdata []byte, conf *MEConfig) (*cb.Envelope, error) {
 	var configpaths []string
 	var path string
 	var index int
-	kvs := conf.DeltaConfig["delta_kvs"].(map[string]interface{})
+	kvs := viper.GetStringMap("delta_config.delta_kvs")
 	for cp, cv := range kvs {
 		//根据配置路径，找到指定的项，
 		if !strings.Contains(cp, fixed_prefix) {
-			fmt.Printf("wrong config path[%s], it's should be %s...\n", cp, fixed_prefix)
-			continue
+			return fmt.Errorf("wrong config path[%s], it's should be %s...", cp, fixed_prefix)
 		}
 		configpaths = strings.Split(cp, SEPARATOR);
 		//最少是3层，如config.channel_group.mod_policy
 		if len(configpaths) < 3 {
-			fmt.Printf("wrong config path[%s], it's fewer than 3\n", cp)
-			continue
+			return fmt.Errorf("wrong config path[%s], it's fewer than 3", cp)
 		}
 		fmt.Printf("config path to update:[%s]\n", cp)
 		//去掉config.channel_group，剩下groups.Orderer.values.KafkaBrokers.value
@@ -654,12 +911,10 @@ func delta(blockdata []byte, conf *MEConfig) (*cb.Envelope, error) {
 
 		//如果不是修改mod_policy，则应该还有2个path
 		if (config_type != 3 && len(configpaths[index+1:]) < 2) {
-			fmt.Println("config path is wrong, not precise")
-			continue
+			return fmt.Errorf("config path is wrong, not precise")
 		}
 		if config_type < 1 || config_type > 3 {
-			fmt.Println("after findconfig, wrong config type,it should be 1,2 or 3")
-			continue
+			return fmt.Errorf("after findconfig, wrong config type,it should be 1,2 or 3")
 		}
 
 		if config_type == 1 {
@@ -668,333 +923,147 @@ func delta(blockdata []byte, conf *MEConfig) (*cb.Envelope, error) {
 			if  cp == ConfigValue_Value {
 				//最终要修改Value的值本身value
 				configvalue, ok := configvalues[path]
-				if !ok {
-					fmt.Printf("config[%s] do not exits\n", path)
-					continue
-				}
+				if !ok { return fmt.Errorf("config[%s] do not exits", path) }
 				err := findAndSetValue(path, cv, configvalue)
-				if err != nil {
-					fmt.Printf("findAndSetValue[%s] err: %s\n", path, err)
-					continue
-				}
+				if err != nil { return fmt.Errorf("findAndSetValue[%s] err: %s", path, err) }
 			}else if cp == ConfigValue_ModPolicy {
 				//最终要修改Value的修改策略mod_policy
 				configvalues[path].ModPolicy = cv.(string)
 			}else {
-				fmt.Printf("config path is wrong, should end with %s or %s\n",ConfigValue_ModPolicy, ConfigValue_Value)
-				continue
+				return fmt.Errorf("config path is wrong, should end with %s or %s",ConfigValue_ModPolicy, ConfigValue_Value)
 			}
 		}else if config_type == 2 {
-			return nil, fmt.Errorf("功能暂未实现")
+			return fmt.Errorf("no the ability temporarily")
 		}else if config_type == 3 {
-			return nil, fmt.Errorf("功能暂未实现")
+			return fmt.Errorf("no the ability temporarily")
 		}
 	}//end for
 
-	//2.形成新的ConfigUpdateEnvelope
-	//可以参考Envelope.payload.data.last_update，该结构是一个Envelope，但是一个升级配置的Envelope，
-	//其中Envelope.payload.data.last_update.payload.data即为一个ConfigUpdateEnvelope，
-	//升级的原始数据即是ConfigUpdateEnvelope.config_update
-	//签名为ConfigUpdateEnvelope.signatures
-	configupdate, err := update.Compute(now_config, new_config)
-	if err != nil {
-		return nil, fmt.Errorf("Compute error: %s", err)
-	}
-	configupdate.ChannelId = conf.BasicInfo["channel_id"]
-
-	ch := &cb.ChannelHeader{
-		Type: int32(cb.HeaderType_CONFIG_UPDATE),
-		ChannelId: configupdate.ChannelId,
-	}
-
-	header   := &cb.Header{}
-	header.ChannelHeader, err = proto.Marshal(ch)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling channelheader error: %s", err)
-	}
-
-	configupdateenvelope := &cb.ConfigUpdateEnvelope{}
-	configupdateenvelope.ConfigUpdate, err = proto.Marshal(configupdate)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling configupdate error: %s", err)
-	}
-	data, err := proto.Marshal(configupdateenvelope)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling configupdateenvelope error: %s", err)
-	}
-	payload, err := proto.Marshal(&cb.Payload{ Data: data })
-	if err != nil {
-		return nil, fmt.Errorf("marshaling payload error: %s", err)
-	}
-
-	envelope := &cb.Envelope{ Payload: payload }
-
-	return envelope, nil
-}
-
-func sign(envelope *cb.Envelope, conf *MEConfig) (*cb.Envelope, error) {
-	fmt.Println("start to sign...")
-	if envelope == nil || conf == nil {
-		return nil, fmt.Errorf("args is nil")
-	}
-
-	var err error
-	payload := &cb.Payload{}
-	if err = proto.Unmarshal(envelope.Payload, payload); err != nil {
-		return nil, fmt.Errorf("Unmarshal Payload err: %s", err)
-	}
-	cue := &cb.ConfigUpdateEnvelope{}
-	if err = proto.Unmarshal(payload.Data, cue); err != nil {
-		return nil, fmt.Errorf("Unmarshal Payload.Data err: %s", err)
-	}
-
-	signer, err := getSigner(conf)
-	if err != nil { return nil, err }
-
-	sh, err := signer.NewSignatureHeader()
-	if err != nil { return nil, err }
-
-	cs := &cb.ConfigSignature{ SignatureHeader: fprotoutils.MarshalOrPanic(sh) }
-	cs.Signature, err = signer.Sign(util.ConcatenateBytes(cs.SignatureHeader, cue.ConfigUpdate))
-
-	cue.Signatures = append(cue.Signatures, cs)
-
-	channelid := conf.BasicInfo["channel_id"]
-	signedenvelope, err := fprotoutils.CreateSignedEnvelope(cb.HeaderType_CONFIG_UPDATE, channelid, signer, cue, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("CreateSignedEnvelope err: %s", err)
-	}
-
-	return signedenvelope, nil
-}
-
-func commit(envelope *cb.Envelope, conf *MEConfig) error {
-	fmt.Println("start to commit...")
-	if envelope == nil || conf == nil { return fmt.Errorf("commit args is nil") }
-	//os.Setenv(orderer_address)
-	//bc, err = peercommon.GetBroadcastClient()//v1.2，需要设置一些环境变量
-	orderer_endpoint := conf.BasicInfo["orderer_endpoint"]
-	orderer_tls_rootcert := conf.BasicInfo["orderer_tls_rootcert"]
-	if orderer_endpoint == "" || orderer_tls_rootcert == "" {
-		return fmt.Errorf("orderer_endpoint or orderer_tls_rootcert is nil")
-	}
-	bc, err := peercommon.GetBroadcastClient(orderer_endpoint, true, orderer_tls_rootcert)//v1.0
-	if err != nil { return fmt.Errorf("GetBroadcastClient error: %s", err) }
-
-	err = bc.Send(envelope)
-	if err != nil { return fmt.Errorf("Send error: %s\n", err) }
-
-	bc.Close()
 	return nil
 }
 
-func f_mode(conf *MEConfig) ([]byte, error) {
-	blockdata, err := fetch(conf)
-	if err != nil { return nil, err }
-	is_save := conf.Option["save"]
-	if is_save && conf.FetchConfig["from"] == "channel" {
-		if err = ioutil.WriteFile(conf.FetchConfig["fetch_file"], blockdata, 0644); err != nil {
-			return nil, fmt.Errorf("write fetch_file err: %s", err)
+func deltaOrgs(new_config *cb.Config) error {
+	if new_config == nil || new_config.ChannelGroup == nil { return fmt.Errorf("new_config is nil") }
+	ApplicationGroupKey := "Application"
+	application_group := new_config.ChannelGroup.Groups[ApplicationGroupKey]
+	if application_group == nil || application_group.Groups == nil { return fmt.Errorf("application group in Config is nil") }
+
+	orgs := viper.GetStringMap("delta_config.delta_orgs")
+	if len(orgs) == 0 { return fmt.Errorf("there is no org in delta_config.") }
+
+	var org_name, msp_id, msp_path, msp_type string
+	var i_policies map[string]interface{}
+	var anchors []string
+	var data []byte
+
+	MSPKey := "MSP"
+	AnchorPeersKey := "AnchorPeers"
+	AdminsPolicyKey := "Admins"
+	ReadersPolicyKey := "Readers"
+	WritersPolicyKey := "Writes"
+	SignaturePolicyType := "Signature"
+	ImplicitMetaPolicyType := "ImplicitMeta"
+
+	for org_name, _ = range orgs {
+		msp_id = viper.GetString(fmt.Sprintf("delta_config.delta_orgs.%s.msp_id", org_name))
+		msp_path = viper.GetString(fmt.Sprintf("delta_config.delta_orgs.%s.msp_path", org_name))
+		anchors = viper.GetStringSlice(fmt.Sprintf("delta_config.delta_orgs.%s.anchor_peers_enpoint", org_name))
+		//>=v1.2存在的配置项
+		msp_type = viper.GetString(fmt.Sprintf("delta_config.delta_orgs.%s.msp_type", org_name))
+		i_policies = viper.GetStringMap(fmt.Sprintf("delta_config.delta_orgs.%s.policies", org_name))
+		fmt.Printf("get org[%s] config: msp_id:%s, msp_path:%s, anchors:%v\n", org_name, msp_id, msp_path, anchors)
+		fmt.Printf("get org[%s] config: msp_type:%s, policies:%v\n", org_name, msp_type, i_policies)
+		if msp_id == "" || msp_path == "" || anchors == nil || len(anchors) == 0  {
+			return fmt.Errorf("org[%s]'s config is invalid, please check.", org_name)
 		}
-	}
-	return blockdata, nil
-}
 
-func fd_mode(conf *MEConfig) (*cb.Envelope, error) {
-	blockdata, err := f_mode(conf)
-	if err != nil { return nil, fmt.Errorf("fd_mode f_mode err: %s", err) }
-	envelope, err := delta(blockdata, conf)
-	if err != nil { return nil, fmt.Errorf("fd_mode delta err: %s", err) }
-	data, err := proto.Marshal(envelope)
-	if err != nil { return nil, fmt.Errorf("fd_mode marshal err: %s", err) }
-	file := conf.DeltaConfig["delta_file"].(string)
-	if file == "" {
-		return nil, fmt.Errorf("fd_mode err: please set delta_config.delta_file")
-	}
-	err = ioutil.WriteFile(file, data, 0660)
-	if err != nil { return nil, fmt.Errorf("fd_mode write file err: %s", err) }
-	return envelope, nil
-}
+		org_group := cb.NewConfigGroup()
+		//1.给org_group添加ConfigValue
+		//1.1 msp ConfigValue
+		//mspconf, err := msp.GetVerifyingMspConfig(msp_path, msp_id, msp_type)//1.2
+		mspconf, err := fmsp.GetVerifyingMspConfig(msp_path, msp_id)
+		msp_value := &cb.ConfigValue{}
+		msp_value.Value, err = fprotoutils.Marshal(mspconf)
+		if err != nil { return fmt.Errorf("org[%s] marshal msp config err: %s", org_name, err) }
+		msp_value.ModPolicy = AdminsPolicyKey
+		//1.2 anchors ConfigValue
+		anchor_value := &cb.ConfigValue{}
+		aps := &pb.AnchorPeers{}
+		for _, anchor := range anchors {
+			endpoint := strings.Split(anchor, ":")
+			if len(endpoint) != 2 { return fmt.Errorf("org[%s] can't parse anchor[%s]", org_name, anchor) }
+			port, err := strconv.Atoi(endpoint[1])
+			if err != nil { return fmt.Errorf("org[%s] can't parse anchor[%s]", org_name, anchor) }
+			ap := &pb.AnchorPeer{ Host: endpoint[0], Port: int32(port) }
+			aps.AnchorPeers = append(aps.AnchorPeers, ap)
+		}
+		anchor_value.Value, err = fprotoutils.Marshal(aps)
+		if err != nil { return fmt.Errorf("Marshal org[%s] anchors config err: %s", org_name, err) }
+		anchor_value.ModPolicy = AdminsPolicyKey
 
-func fds_mode(conf *MEConfig) (*cb.Envelope, error) {
-	blockdata, err := f_mode(conf)
-	if err != nil { return nil, fmt.Errorf("f_mode err: %s", err) }
-	envelope, err := delta(blockdata, conf)
-	is_save := conf.Option["save"]
-	if is_save {
-		file := conf.DeltaConfig["delta_file"].(string)
-		if file == "" { return nil, fmt.Errorf("fds_mode err: save is true but delta_config.delta_file is nil") }
-		data, err := proto.Marshal(envelope)
-		if err != nil { return nil, fmt.Errorf("fds_mode marshal err: %s", err) }
-		err = ioutil.WriteFile(file, data, 0660)
-		if err != nil { return nil, fmt.Errorf("fds_mode write file err: %s", err) }
-	}
+		org_group.Values[MSPKey] = msp_value
+		org_group.Values[AnchorPeersKey] = anchor_value
+		//2. 给org_group添加Policies
+		//如果自定义了策略，则给定自定义策略，若没有，则给默认的策略
+		i_policies = viper.GetStringMap(fmt.Sprintf("delta_config.delta_orgs.%s.policies", org_name))
+		if len(i_policies) != 0 {
+			//>=1.2版本允许自定义策略
+			for p_name, _ := range i_policies {
+				p_type := viper.GetString(fmt.Sprintf("delta_config.delta_orgs.%s.policies.%s.type", org_name, p_name))
+				p_rule := viper.GetString(fmt.Sprintf("delta_config.delta_orgs.%s.policies.%s.rule", org_name, p_name))
+				//v1.2中的ImplicitMetaFromString
+				if p_type == ImplicitMetaPolicyType {
+					rules := strings.Split(p_rule, " ")
+					if len(rules) != 2 { return fmt.Errorf("org[%s] implicitmeta policy[%s] invalid", org_name, p_name) }
 
-	signedenvelope, err := sign(envelope, conf)
-	if err != nil { return nil, fmt.Errorf("fds_mode sign err: %s", err) }
+					imp := &cb.ImplicitMetaPolicy{ SubPolicy: rules[1] }
+					switch rules[0] {
+					case cb.ImplicitMetaPolicy_ANY.String():
+						imp.Rule = cb.ImplicitMetaPolicy_ANY
+					case cb.ImplicitMetaPolicy_ALL.String():
+						imp.Rule = cb.ImplicitMetaPolicy_ALL
+					case cb.ImplicitMetaPolicy_MAJORITY.String():
+						imp.Rule = cb.ImplicitMetaPolicy_MAJORITY
+					default:
+						return fmt.Errorf("org[%s] implicitmeta policy[%s] unknown rule type[%s]", org_name, p_name, rules[0])
+					}
+					data, err = fprotoutils.Marshal(imp)
+					if err != nil { return fmt.Errorf("org[%s] implicitmeta policy[%s] marshal err: %s", org_name, p_name, err) }
 
-	signedenvelopedata, err := proto.Marshal(signedenvelope)
-	if err != nil { return nil, fmt.Errorf("marshal signedenvelope error: %s", err) }
-	file := conf.SignConfig["sign_file"]
-	if file == "" { return nil, fmt.Errorf("fds_mode err: please set sign_config.sign_file") }
-	err = ioutil.WriteFile(file, signedenvelopedata, 0660)
-	if err != nil { return nil, fmt.Errorf("write signedenvelope err: %s", err) }
+					org_group.Policies[p_name] = &cb.ConfigPolicy{
+						ModPolicy: AdminsPolicyKey,
+						Policy: &cb.Policy{ Type: int32(cb.Policy_IMPLICIT_META), Value: data },
+					}
+				}else if p_type == SignaturePolicyType {
+					sp, err := fcauthdsl.FromString(p_rule)
+					if err != nil { return fmt.Errorf("org[%s] signature policy[%s] invalid, err: %s", org_name, p_name, err) }
+					data, err = fprotoutils.Marshal(sp)
+					if err != nil { return fmt.Errorf("org[%s] signature policy[%s] marshal err: %s", org_name, p_name, err) }
+					org_group.Policies[p_name] = &cb.ConfigPolicy{
+						ModPolicy: AdminsPolicyKey,
+						Policy: &cb.Policy{ Type: int32(cb.Policy_SIGNATURE), Value: data },
+					}
+				}else {
+					return fmt.Errorf("org[%s] policy[%s] type[%s] is unknown", org_name, p_name, p_type)
+				}
+			}//for end
+		}else {
+			data, err = fprotoutils.Marshal(fcauthdsl.SignedByMspAdmin(msp_id))
+			adminPolicy := &cb.ConfigPolicy{ Policy: &cb.Policy{ Type: int32(cb.Policy_SIGNATURE), Value: data } }
+			data, err = fprotoutils.Marshal(fcauthdsl.SignedByMspMember(msp_id))
+			memberPolicy := &cb.ConfigPolicy{ Policy: &cb.Policy{ Type: int32(cb.Policy_SIGNATURE), Value: data } }
+			if err != nil { return fmt.Errorf("Marshal org[%s] policies err: %s", org_name, err) }
 
-	return signedenvelope, nil
-}
+			org_group.Policies[AdminsPolicyKey]  = adminPolicy
+			org_group.Policies[ReadersPolicyKey] = memberPolicy
+			org_group.Policies[WritersPolicyKey] = memberPolicy
+		}
+		//3. 给org_group添加ModPolicy
+		org_group.ModPolicy = AdminsPolicyKey
 
-func s_mode(conf *MEConfig) (*cb.Envelope, error) {
-	var signedenvelope *cb.Envelope
-
-	if conf.SignConfig["from"] == "file" {
-		file := conf.SignConfig["sign_file"]
-		if file == "" { return nil, fmt.Errorf("s_mode err: please set sign_config.sign_file") }
-		data, err := ioutil.ReadFile(file)
-		if err != nil { return nil, fmt.Errorf("s_mode read file err: %s", err) }
-
-		envelope, err := fprotoutils.UnmarshalEnvelope(data)
-		if err != nil { return nil, fmt.Errorf("s_mode unmarshal err: %s", err) }
-		signedenvelope, err = sign(envelope, conf)
-		if err != nil { return nil, fmt.Errorf("fds_mode sign err: %s", err) }
-		signedenvelopedata, err := proto.Marshal(signedenvelope)
-		if err != nil { return nil, fmt.Errorf("marshal signedenvelope err: %s", err) }
-		err = ioutil.WriteFile(file, signedenvelopedata, 0660)
-		if err != nil { return nil, fmt.Errorf("write signedenvelope err: %s", err) }
-	}else {
-		return nil, fmt.Errorf("s_mode err: please set sign_config's from='file' and set sign_file")
-	}
-
-	return signedenvelope, nil
-}
-
-func sc_mode(conf *MEConfig) error {
-	signedenvelope, err := s_mode(conf)
-	if err != nil { return fmt.Errorf("sc_mode s_mode err: %s", err) }
-
-	return commit(signedenvelope, conf)
-}
-
-func c_mode(conf *MEConfig) error {
-	if conf.CommitConfig["from"] == "file" {
-		file := conf.CommitConfig["commit_file"]
-		if file == "" { return fmt.Errorf("c_mode err: please set commit_config.commit_file") }
-		data, err := ioutil.ReadFile(file)
-		if err != nil { return fmt.Errorf("s_mode read file err: %s", err) }
-		signedenvelope, err := fprotoutils.UnmarshalEnvelope(data)
-		if err != nil { return fmt.Errorf("s_mode unmarshal err: %s", err) }
-
-		return commit(signedenvelope, conf)
-	}
-	return fmt.Errorf("c_mode err: please set commit_config's from='file' and set commit_file")
-}
-
-func fdsc_mode(conf *MEConfig) error {
-	blockdata, err := f_mode(conf)
-	if err != nil { return fmt.Errorf("fdsc_mode f_mode err: %s", err) }
-	envelope, err := delta(blockdata, conf)
-	if err != nil { return fmt.Errorf("fdsc_mode delta err: %s", err) }
-	is_save := conf.Option["save"]
-	if is_save {
-		data, err := proto.Marshal(envelope)
-		if err != nil { return fmt.Errorf("fdsc_mode marshal err: %s", err) }
-		file := conf.DeltaConfig["delta_file"].(string)
-		if file == "" { return fmt.Errorf("fdsc_mode err: save is true but delta_config.delta_file is nil") }
-		err = ioutil.WriteFile(file, data, 0660)
-		if err != nil { return fmt.Errorf("fdsc_mode write file err: %s", err) }
-	}
-
-	signedenvelope, err := sign(envelope, conf)
-	if err != nil { return fmt.Errorf("fdsc_mode sign err: %s", err) }
-	if is_save {
-		signedenvelopedata, err := proto.Marshal(signedenvelope)
-		if err != nil { return fmt.Errorf("marshal signedenvelope err: %s", err) }
-		file := conf.SignConfig["sign_file"]
-		if file == "" { return fmt.Errorf("fdsc_mode err: save is true but sign_config.sign_file is nil") }
-		err = ioutil.WriteFile(file, signedenvelopedata, 0660)
-		if err != nil { return fmt.Errorf("write signedenvelope err: %s", err) }
-	}
-
-	err = commit(signedenvelope, conf)
-	if err != nil { return fmt.Errorf("fdsc_mode commit err: %s", err) }
-
-	return nil
-}
-
-func (m *MODE) do(conf *MEConfig) error {
-	if conf == nil { return fmt.Errorf("do args is nil") }
-	mode := *m
-	var err error
-
-	if mode == F {
-		_, err = f_mode(conf)
-	}else if mode == FD {
-		_, err = fd_mode(conf)
-	}else if mode == FDS {
-		_, err = fds_mode(conf)
-	}else if mode == S {
-		_, err = s_mode(conf)
-	}else if mode == SC {
-		err = sc_mode(conf)
-	}else if mode == C {
-		err = c_mode(conf)
-	}else if mode == FDSC {
-		err = fdsc_mode(conf)
-	}else {
-		return fmt.Errorf("未知操作模式[%d]", mode)
-	}
-
-	return err
-}
-
-/*
-//msgName要具体到某个库下的数据类型，该类型经过proto.RegisterType()注册过，在这里的proto.MessageType即可识别
-func encode(msgName string, input, output *os.File) error {
-	msgType := proto.MessageType(msgName)
-	if msgType == nil {
-		return errors.Errorf("message of type %s unknown", msgType)
-	}
-	msg := reflect.New(msgType.Elem()).Interface().(proto.Message)
-
-	err := protolator.DeepUnmarshalJSON(input, msg)
-	if err != nil {
-		return errors.Wrapf(err, "error decoding input")
-	}
-
-	out, err := proto.Marshal(msg)
-	if err != nil {
-		return errors.Wrapf(err, "error marshaling")
-	}
-
-	_, err = output.Write(out)
-	if err != nil {
-		return errors.Wrapf(err, "error writing output")
+		application_group.Groups[org_name] = org_group
 	}
 
 	return nil
 }
 
-func decode(msgName string, input, output *os.File) error {
-	msgType := proto.MessageType(msgName)
-	if msgType == nil {
-		return errors.Errorf("message of type %s unknown", msgType)
-	}
-	msg := reflect.New(msgType.Elem()).Interface().(proto.Message)
-
-	in, err := ioutil.ReadAll(input)
-	if err != nil {
-		return errors.Wrapf(err, "error reading input")
-	}
-
-	err = proto.Unmarshal(in, msg)
-	if err != nil {
-		return errors.Wrapf(err, "error unmarshaling")
-	}
-
-	err = protolator.DeepMarshalJSON(output, msg)
-	if err != nil {
-		return errors.Wrapf(err, "error encoding output")
-	}
-
-	return nil
-}
-*/

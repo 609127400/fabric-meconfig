@@ -40,9 +40,7 @@
 
 #### 命令行flag
 
-命令行flag会覆盖meconfig.json中关于option中的功能定义。即，当使用命令行flag时，meconfig.json中的option项的配置将哑掉（其余配置正常工作）。
-
-##### flag
+对程序的执行效果，主要通过命令行flag进行控制。命令行flag如下：
 
 * `-s`或`--save`：与option.save功能一致，可配合任意命令使用。若不设置，则默认使用option.save的值。
 * `-m`或`--mode`：指定模式，值为f/fd/fds/s/sc/c/fdsc：

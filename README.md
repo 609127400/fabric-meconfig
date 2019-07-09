@@ -25,7 +25,7 @@
 * basic_info
 	- channel_id: 所要更新配置的通道名称 
 	- localmsp_xxx：本地用于fetch/commit时向orderer发送Envelope时对Envelope进行签名的msp。确保该msp所代表的身份在通道上拥有写权限即可
-	- orderer_xxx：用于fetch和commit，若fetch/commit均为off，则无需设置
+	- orderer_xxx：orderer信息。用于fetch和commit时，向orderer提交或获取配置数据
 * fetch_config
 	- from：值为file，则从config_file指定的配置交易文件进行读取数据。值为channel，则从fabric区块链网络的通道中获取最新配置交易数据。
 	- fetch_file：当from值为file时，指定配置交易文件的路径。当save动作开启时，若是从channel中获取最新配置交易数据，该配置交易数据将保存在此文件中。
@@ -42,7 +42,7 @@
 
 对程序的执行效果，主要通过命令行flag进行控制。命令行flag如下：
 
-* `-s`或`--save`：与option.save功能一致，可配合任意命令使用。若不设置，则默认使用option.save的值。
+* `-s`或`--save`：与option.save功能一致，可配合任意命令使用。
 * `-m`或`--mode`：指定模式，值为f/fd/fds/s/sc/c/fdsc：
 	- `f`：fetch。单独获取配置。
 	- `fd`：fetch/delta。获取配置并计算增量配置。
